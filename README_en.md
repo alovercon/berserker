@@ -1,6 +1,6 @@
 # berserker
 
-**The open-source AI coding agent** — a powerful, autonomous coding assistant that plans, writes, edits, runs commands, and iterates on real codebases in your terminal or a native GUI.
+**The open-source AI coding agent** — an autonomous coding assistant that runs on Windows 7, capable of planning, writing, editing, running commands, and iterating on real-world codebases. Supports both CLI and native GUI interfaces.
 
 > 中文版本：请参阅 [README.md](README.md) · Detailed user manual (Chinese): [docs/用户手册.md](docs/用户手册.md)
 
