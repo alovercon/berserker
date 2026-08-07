@@ -148,4 +148,4 @@ pytest
 
 ---
 
-*berserker 是开源 AI 编码智能体概念的 Python 移植版。它是一个独立项目，与 Blizzard Entertainment 无任何关联或背书；"berserker"（狂战士）之名源自传奇的北欧战士。*
+*berserker 是开源 AI 编码智能体概念的 Python 版。"berserker"（狂战士）之名源自传奇的北欧战士。*

@@ -148,4 +148,4 @@ pytest
 
 ---
 
-*berserker is a Python port of the open-source AI coding agent concept. It is an independent project and not affiliated with or endorsed by Blizzard Entertainment; the "berserker" name refers to the legendary Norse warriors.*
+*berserker is a Python port of the open-source AI coding agent concept. The "berserker" name refers to the legendary Norse warriors.*
