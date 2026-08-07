@@ -1,0 +1,7 @@
+[
+    {
+        "directory": "E:\\0-works\\coding\\berserker\\tests",
+        "command": "clang -c -target x86_64-pc-windows-msvc -fms-compatibility-version=19.33 lsp_test.c",
+        "file": "lsp_test.c"
+    }
+]

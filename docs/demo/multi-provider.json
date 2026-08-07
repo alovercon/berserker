@@ -1,0 +1,80 @@
+{
+  "providers": {
+    "openai": {
+      "type": "openai",
+      "api_key": "{env:OPENAI_API_KEY}",
+      "models": [
+        {"name": "gpt-4o", "context_window": 128000, "max_output_tokens": 16384, "compaction_buffer": 20000},
+        {"name": "gpt-4o-mini", "context_window": 128000, "max_output_tokens": 16384}
+      ]
+    },
+    "anthropic": {
+      "type": "anthropic",
+      "api_key": "{env:ANTHROPIC_API_KEY}",
+      "models": [
+        {"name": "claude-sonnet-4-20250514", "context_window": 200000, "max_output_tokens": 8192},
+        {"name": "claude-3.5-haiku-20241022", "context_window": 200000, "max_output_tokens": 8192}
+      ]
+    },
+    "google": {
+      "type": "google",
+      "api_key": "{env:GOOGLE_API_KEY}",
+      "models": [
+        {"name": "gemini-2.0-flash", "context_window": 1000000, "max_output_tokens": 8192}
+      ]
+    },
+    "groq": {
+      "type": "groq",
+      "api_key": "{env:GROQ_API_KEY}",
+      "models": [
+        {"name": "llama-3.1-70b", "context_window": 128000, "max_output_tokens": 8192}
+      ]
+    },
+    "openrouter": {
+      "type": "openrouter",
+      "api_key": "{env:OPENROUTER_API_KEY}"
+    }
+  },
+  "agents": [
+    {
+      "name": "berserker",
+      "description": "Primary coding agent for implementation tasks",
+      "mode": "primary",
+      "model": "openai/gpt-4o",
+      "permission": "full"
+    },
+    {
+      "name": "plan",
+      "description": "Code analysis and planning agent",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "ls", "glob", "grep", "task"]
+      }
+    },
+    {
+      "name": "general",
+      "description": "General-purpose subagent for complex multi-step tasks",
+      "mode": "subagent",
+      "model": "google/gemini-2.0-flash",
+      "permission": "full"
+    },
+    {
+      "name": "explore",
+      "description": "Codebase exploration and discovery subagent",
+      "mode": "subagent",
+      "model": "groq/llama-3.1-70b",
+      "permission": "restricted"
+    }
+  ],
+  "permissions": [
+    { "tool": "read", "action": "allow" },
+    { "tool": "ls", "action": "allow" },
+    { "tool": "glob", "action": "allow" },
+    { "tool": "grep", "action": "allow" },
+    { "tool": "write", "action": "ask" },
+    { "tool": "edit", "action": "ask" },
+    { "tool": "bash", "action": "ask" }
+  ]
+}

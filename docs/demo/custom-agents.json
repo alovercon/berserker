@@ -1,0 +1,63 @@
+{
+  "agents": [
+    {
+      "name": "security-auditor",
+      "description": "Scans code for security vulnerabilities and suggests remediation",
+      "mode": "subagent",
+      "model": "gpt-4o",
+      "prompt": "You are a security audit specialist. Analyze code for:\n- SQL injection vulnerabilities\n- XSS attacks\n- Authentication bypasses\n- Insecure data storage\n\nProvide specific line numbers and fix suggestions.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "lsp"],
+        "max_tool_iterations": 50
+      },
+      "temperature": 0.3,
+      "top_p": 0.9,
+      "color": "#EF4444",
+      "variant": "strict",
+      "steps": 100
+    },
+    {
+      "name": "test-writer",
+      "description": "Generates comprehensive unit tests for Python code",
+      "mode": "subagent",
+      "model": "claude-sonnet-4-20250514",
+      "prompt": "You are a test writing specialist. Create thorough unit tests using pytest.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "write", "glob", "grep"],
+        "max_tool_iterations": 30
+      },
+      "temperature": 0.5,
+      "color": "#10B981"
+    },
+    {
+      "name": "code-reviewer",
+      "description": "Senior code reviewer specializing in Python best practices",
+      "mode": "subagent",
+      "model": "claude-3.5-sonnet-20241022",
+      "prompt": "You are a senior code reviewer. Review code for:\n- Best practices adherence\n- Potential bugs\n- Performance issues\n- Readability and maintainability",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "ls", "lsp"],
+        "max_tool_iterations": 40
+      },
+      "temperature": 0.2,
+      "color": "#F59E0B"
+    },
+    {
+      "name": "doc-writer",
+      "description": "Technical documentation and API reference writer",
+      "mode": "subagent",
+      "model": "gpt-4o",
+      "prompt": "You are a technical writer specializing in developer documentation. Write clear, concise documentation with examples.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "write", "glob"],
+        "max_tool_iterations": 25
+      },
+      "temperature": 0.7,
+      "color": "#8B5CF6"
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "providers": {
+    "bailian_coding": {
+      "type": "bailian_coding",
+      "api_key": "{env:DASHSCOPE_API_KEY}",
+      "name": "Alibaba Bailian Coding",
+      "models": [
+        {
+          "name": "qwen3.6-plus",
+          "context_window": 1000000,
+          "max_output_tokens": 65536,
+          "compaction_buffer": 20000
+        }
+      ]
+    }
+  },
+  "agents": [
+    {
+      "name": "berserker",
+      "description": "Primary coding agent for implementation tasks",
+      "mode": "primary",
+      "model": "bailian_coding/qwen3.6-plus",
+      "permission": "full",
+      "options": {
+        "max_tool_iterations": 100000
+      }
+    },
+    {
+      "name": "plan",
+      "description": "Code analysis and planning agent",
+      "mode": "primary",
+      "model": "bailian_coding/qwen3.6-plus",
+      "permission": "restricted",
+      "options": {
+        "max_tool_iterations": 100000,
+        "tools": ["read", "ls", "glob", "grep", "task"]
+      }
+    },
+    {
+      "name": "general",
+      "description": "General-purpose subagent for complex multi-step tasks",
+      "mode": "subagent",
+      "model": "bailian_coding/qwen3.6-plus",
+      "permission": "full",
+      "options": {
+        "max_tool_iterations": 100000
+      }
+    },
+    {
+      "name": "explore",
+      "description": "Codebase exploration and discovery subagent",
+      "mode": "subagent",
+      "model": "bailian_coding/qwen3.6-plus",
+      "permission": "restricted",
+      "options": {
+        "max_tool_iterations": 100000
+      }
+    },
+    {
+      "name": "security-auditor",
+      "description": "Custom security audit subagent",
+      "mode": "subagent",
+      "model": "bailian_coding/qwen3.6-plus",
+      "prompt": "You are a security audit specialist. Analyze code for SQL injection, XSS, authentication bypasses, and insecure data storage.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "lsp"]
+      }
+    }
+  ],
+  "subagent_timeout": 1800,
+  "permissions": [
+    { "tool": "read", "action": "allow" },
+    { "tool": "ls", "action": "allow" },
+    { "tool": "glob", "action": "allow" },
+    { "tool": "grep", "action": "allow" },
+    { "tool": "todo", "action": "allow" },
+    { "tool": "selection", "action": "allow" },
+    { "tool": "task", "action": "allow" }
+  ],
+  "plugins": [
+    {
+      "name": "session-timer",
+      "path": "{file:plugins/session_timer.py}",
+      "version": "1.0.0"
+    }
+  ],
+  "logging": {
+    "enabled": true,
+    "file": "berserker.log",
+    "level": "DEBUG"
+  }
+}

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <defs>
+    <!-- 底板：深紫对角渐变 -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#251C50"/>
+      <stop offset="1" stop-color="#0B0818"/>
+    </linearGradient>
+    <!-- 符文主体：橙金渐变 -->
+    <linearGradient id="rune" x1="0.75" y1="0.07" x2="0.25" y2="0.93">
+      <stop offset="0" stop-color="#FFD98A"/>
+      <stop offset="0.55" stop-color="#FF8A3D"/>
+      <stop offset="1" stop-color="#EE5622"/>
+    </linearGradient>
+    <!-- 背景能量辉光 -->
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#4A3A8C" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#4A3A8C" stop-opacity="0"/>
+    </radialGradient>
+    <!-- 火花青色辉光 -->
+    <filter id="sparkGlow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 应用图标底板（圆角 23%） -->
+  <rect width="1000" height="1000" rx="230" fill="url(#bg)"/>
+
+  <!-- 能量辉光 -->
+  <ellipse cx="500" cy="509" rx="400" ry="400" fill="url(#glow)"/>
+
+  <!-- 符文 ᛒ -->
+  <g>
+    <!-- 主竖干 -->
+    <path d="M328,838 L328,232 L406,188 L406,806 Z" fill="url(#rune)"/>
+    <!-- 竖干刃口高光 -->
+    <path d="M328,232 L406,188 L406,214 L328,258 Z" fill="#FFEFC4" opacity="0.85"/>
+    <!-- 上翼 -->
+    <path d="M430,240 L698,352 L662,392 L430,482 Z" fill="url(#rune)"/>
+    <!-- 上翼刃口高光 -->
+    <path d="M430,240 L698,352 L680,370 L430,268 Z" fill="#FFEFC4" opacity="0.7"/>
+    <!-- 下翼 -->
+    <path d="M430,502 L730,644 L690,688 L430,784 Z" fill="url(#rune)"/>
+    <!-- 下翼刃口高光 -->
+    <path d="M430,502 L730,644 L708,664 L430,532 Z" fill="#FFEFC4" opacity="0.7"/>
+    <!-- 两翼连接处刻痕阴影 -->
+    <path d="M406,478 L472,490 L406,508 Z" fill="#1A1030" opacity="0.55"/>
+  </g>
+
+  <!-- 能量火花 -->
+  <path d="M367,84 L397,124 L367,164 L337,124 Z" fill="#7EE7F9" filter="url(#sparkGlow)"/>
+  <path d="M666,222 L684,240 L666,258 L648,240 Z" fill="#7EE7F9" opacity="0.85" filter="url(#sparkGlow)"/>
+</svg>

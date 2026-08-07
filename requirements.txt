@@ -1,0 +1,41 @@
+# Core dependencies (Python 3.8.10 compatible)
+# LLM SDKs
+openai<2.0
+anthropic<0.50
+
+# JSONC parsing
+jsoncomment>=0.4.0
+
+# YAML parsing (for skill frontmatter)
+PyYAML>=6.0
+
+# JSON Schema validation (for tool parameter validation)
+jsonschema>=4.0.0,<4.18.0  # <4.18.0 avoids referencing/rpds-py (Win7 incompatible)
+
+# Markdown to HTML rendering for chat bubble preview dialog
+mistune>=3.0,<4.0
+
+# Token counting (optional - falls back to character estimation if unavailable)
+# tiktoken>=0.7.0,<1.0
+# Note: tiktoken requires Rust compiler on win32. Install manually if needed:
+# pip install tiktoken
+# Without tiktoken, token counting uses character-based estimation (~4 chars/token).
+
+# Type hints backport for Python 3.8/3.9
+typing-extensions>=4.7.0; python_version < '3.10'
+
+# PyInstaller (pinned for Windows 7 compatibility)
+pyinstaller==5.13.2
+
+# GUI dependencies (optional - for wxPython GUI mode)
+# wxPython>=4.2.0,<5.0
+
+# Dev dependencies
+pytest>=7.4.0,<9.0
+pytest-asyncio>=0.21.0,<1.0
+pytest-cov>=4.1.0,<6.0
+black>=23.0.0,<25.0
+ruff>=0.1.0,<1.0
+mypy>=1.5.0,<2.0
+build>=1.0.0,<2.0
+twine>=4.0.0,<6.0

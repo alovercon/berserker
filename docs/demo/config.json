@@ -1,0 +1,428 @@
+{
+  // ============================================================
+  // berserker Configuration Example
+  // ============================================================
+  // This file demonstrates all available configuration options.
+  // Supports JSONC (JSON with Comments), environment variable
+  // substitution ({env:VAR}), and file content substitution ({file:path}).
+  //
+  // Config layer merge order (later overrides earlier):
+  //   1. managed   — enterprise/MDM settings (not implemented)
+  //   2. global    — {config_dir}/config.json
+  //   3. custom    — user-specified config file path
+  //   4. project   — {cwd}/berserker.json[c] or {cwd}/.berserker/config.json[c]
+  //   5. inline    — dict passed to load_config()
+  // ============================================================
+
+  // ----------------------------------------------------------
+  // LLM Providers
+  // ----------------------------------------------------------
+  // Each provider entry requires a "type" field. The key becomes
+  // the provider_id. Native providers have their own classes;
+  // OpenAI-compatible providers use OpenAICompatibleProvider with
+  // different default base URLs.
+  //
+  // Native types: openai, anthropic, google, azure, mistral, amazon_bedrock
+  // OpenAI-compatible types: groq, openrouter, deepinfra, deepseek,
+  //   cerebras, together, perplexity, xai, venice, gitlab, bailian,
+  //   bailian_coding
+  // ----------------------------------------------------------
+  "providers": {
+    // OpenAI native provider
+    "openai": {
+      "type": "openai",
+      "api_key": "{env:OPENAI_API_KEY}",
+      "models": [
+        {"name": "gpt-4o", "context_window": 128000, "max_output_tokens": 16384, "compaction_buffer": 20000},
+        {"name": "gpt-4o-mini", "context_window": 128000, "max_output_tokens": 16384},
+        {"name": "gpt-4-turbo", "context_window": 128000, "max_output_tokens": 4096},
+        {"name": "gpt-3.5-turbo", "context_window": 16385, "max_output_tokens": 4096},
+        {"name": "o1", "context_window": 200000, "max_output_tokens": 100000},
+        {"name": "o3-mini", "context_window": 200000, "max_output_tokens": 100000}
+      ]
+    },
+
+    // Anthropic native provider
+    "anthropic": {
+      "type": "anthropic",
+      "api_key": "{env:ANTHROPIC_API_KEY}",
+      "models": [
+        {"name": "claude-sonnet-4-20250514", "context_window": 200000, "max_output_tokens": 8192},
+        // compaction_buffer reserves tokens for the LLM response when
+        // calculating the dynamic tool output truncation threshold.
+        // Formula: available_for_tool = context_limit - current_tokens - compaction_buffer
+        {"name": "claude-3.5-sonnet-20241022", "context_window": 200000, "max_output_tokens": 8192, "compaction_buffer": 30000},
+        {"name": "claude-3.5-haiku-20241022", "context_window": 200000, "max_output_tokens": 8192},
+        {"name": "claude-3-opus-20240229", "context_window": 200000, "max_output_tokens": 4096}
+      ]
+    },
+
+    // Google (Gemini) native provider
+    "google": {
+      "type": "google",
+      "api_key": "{env:GOOGLE_API_KEY}",
+      "models": [
+        {"name": "gemini-2.0-flash", "context_window": 1000000, "max_output_tokens": 8192},
+        {"name": "gemini-1.5-pro", "context_window": 2000000, "max_output_tokens": 8192},
+        {"name": "gemini-1.5-flash", "context_window": 1000000, "max_output_tokens": 8192}
+      ]
+    },
+
+    // Azure OpenAI provider
+    "azure": {
+      "type": "azure",
+      "api_key": "{env:AZURE_OPENAI_API_KEY}",
+      "azure_endpoint": "https://your-resource.openai.azure.com/",
+      "api_version": "2024-02-01",
+      "models": [
+        {"name": "gpt-4o", "context_window": 128000, "max_output_tokens": 16384},
+        {"name": "gpt-4-turbo", "context_window": 128000, "max_output_tokens": 4096},
+        {"name": "gpt-35-turbo", "context_window": 16385, "max_output_tokens": 4096}
+      ]
+    },
+
+    // Mistral native provider
+    "mistral": {
+      "type": "mistral",
+      "api_key": "{env:MISTRAL_API_KEY}",
+      "models": [
+        {"name": "mistral-large-latest", "context_window": 128000, "max_output_tokens": 8192},
+        {"name": "mistral-small-latest", "context_window": 128000, "max_output_tokens": 8192},
+        {"name": "open-mistral-nemo", "context_window": 128000, "max_output_tokens": 4096}
+      ]
+    },
+
+    // Amazon Bedrock native provider
+    "amazon_bedrock": {
+      "type": "amazon_bedrock",
+      "region": "us-east-1",
+      "models": [
+        {"name": "anthropic.claude-3-5-sonnet-20241022-v2:0", "context_window": 200000, "max_output_tokens": 8192},
+        {"name": "anthropic.claude-3-sonnet-20240229-v1:0", "context_window": 200000, "max_output_tokens": 4096},
+        {"name": "meta.llama3-70b-instruct-v1:0", "context_window": 8192, "max_output_tokens": 2048}
+      ]
+      // Uses AWS credentials from the environment (AWS_ACCESS_KEY_ID, etc.)
+      // or ~/.aws/credentials
+    },
+
+    // Groq (OpenAI-compatible) — auto-resolves base_url
+    "groq": {
+      "type": "groq",
+      "api_key": "{env:GROQ_API_KEY}",
+      "models": [
+        {"name": "llama-3.1-70b", "context_window": 128000, "max_output_tokens": 8192},
+        {"name": "llama-3.1-8b", "context_window": 128000, "max_output_tokens": 8192},
+        {"name": "mixtral-8x7b", "context_window": 32768, "max_output_tokens": 4096}
+      ]
+    },
+
+    // OpenRouter (OpenAI-compatible)
+    "openrouter": {
+      "type": "openrouter",
+      "api_key": "{env:OPENROUTER_API_KEY}"
+    },
+
+    // DeepInfra (OpenAI-compatible)
+    "deepinfra": {
+      "type": "deepinfra",
+      "api_key": "{env:DEEPINFRA_API_KEY}"
+    },
+
+    // Cerebras (OpenAI-compatible)
+    "cerebras": {
+      "type": "cerebras",
+      "api_key": "{env:CEREBRAS_API_KEY}"
+    },
+
+    // Together AI (OpenAI-compatible)
+    "together": {
+      "type": "together",
+      "api_key": "{env:TOGETHER_API_KEY}"
+    },
+
+    // Perplexity (OpenAI-compatible)
+    "perplexity": {
+      "type": "perplexity",
+      "api_key": "{env:PERPLEXITY_API_KEY}"
+    },
+
+    // X.AI / Grok (OpenAI-compatible)
+    "xai": {
+      "type": "xai",
+      "api_key": "{env:XAI_API_KEY}"
+    },
+
+    // Venice (OpenAI-compatible)
+    "venice": {
+      "type": "venice",
+      "api_key": "{env:VENICE_API_KEY}"
+    },
+
+    // GitLab (OpenAI-compatible)
+    "gitlab": {
+      "type": "gitlab",
+      "api_key": "{env:GITLAB_ACCESS_TOKEN}"
+    },
+
+    // Alibaba Bailian (OpenAI-compatible)
+    "bailian": {
+      "type": "bailian",
+      "api_key": "{env:DASHSCOPE_API_KEY}",
+      "models": [
+        {"name": "qwen-plus", "context_window": 131072, "max_output_tokens": 8192},
+        {"name": "qwen-max", "context_window": 32768, "max_output_tokens": 8192}
+      ]
+    },
+
+    // Custom OpenAI-compatible provider with explicit base_url
+    "my-custom-provider": {
+      "type": "groq",
+      "api_key": "sk-custom-key",
+      "base_url": "https://custom-endpoint.example.com/v1",
+      "name": "My Custom LLM",
+      "models": [
+        {"name": "custom-model-v1", "context_window": 32768, "max_output_tokens": 4096},
+        {"name": "custom-model-v2", "context_window": 32768, "max_output_tokens": 4096}
+      ]
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Permissions
+  // ----------------------------------------------------------
+  // Controls which tool actions are allowed, denied, or require
+  // user confirmation. Default permissions:
+  //   read, ls, glob, grep → allow
+  //   write, edit, multiedit, apply_patch, bash, task, mkdir,
+  //   rmdir, mv, cp, rm, touch → ask
+  //
+  // Rules are evaluated by priority (higher first), then
+  // agent-specific rules before global ones. First match wins.
+  // Path patterns support glob matching (fnmatch).
+  // ----------------------------------------------------------
+  "permissions": [
+    // Allow read operations without confirmation
+    { "tool": "read", "action": "allow" },
+    { "tool": "ls", "action": "allow" },
+    { "tool": "glob", "action": "allow" },
+    { "tool": "grep", "action": "allow" },
+
+    // Ask before write/edit operations
+    { "tool": "write", "action": "ask" },
+    { "tool": "edit", "action": "ask" },
+    { "tool": "multiedit", "action": "ask" },
+    { "tool": "apply_patch", "action": "ask" },
+
+    // Ask before running shell commands
+    { "tool": "bash", "action": "ask" }
+
+    // Example: Allow writes to specific directories without asking
+    // { "tool": "write", "action": "allow", "path": "src/**/*.py" },
+    // { "tool": "write", "action": "allow", "path": "tests/**/*.py" },
+
+    // Example: Deny writes to config files
+    // { "tool": "write", "action": "deny", "path": "*.json" },
+    // { "tool": "write", "action": "deny", "path": "*.yaml" },
+
+    // Example: Allow bash commands in specific directories
+    // { "tool": "bash", "action": "allow", "path": "scripts/*" }
+  ],
+
+  // ----------------------------------------------------------
+  // MCP (Model Context Protocol) Servers
+  // ----------------------------------------------------------
+  // Connect to local or remote MCP servers to discover and use
+  // external tools. Supports two transport modes:
+  //   - stdio: local subprocess with Content-Length framing
+  //   - http: remote HTTP endpoint with optional Bearer auth
+  // ----------------------------------------------------------
+  "mcp": {
+    "servers": {
+      // Local MCP server via stdio transport
+      "filesystem": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+      },
+
+      // Remote MCP server via HTTP transport
+      "remote-tools": {
+        "transport": "http",
+        "url": "https://mcp.example.com/sse",
+        "api_key": "{env:MCP_API_KEY}"
+      },
+
+      // Another stdio example: database MCP server
+      "sqlite-explorer": {
+        "transport": "stdio",
+        "command": "python",
+        "args": ["-m", "mcp_sqlite_server", "./data/database.db"]
+      }
+    }
+  },
+
+  // ----------------------------------------------------------
+  // LSP (Language Server Protocol) Servers
+  // ----------------------------------------------------------
+  // Override default LSP server commands per language.
+  // Format: { "lsp": { "servers": { "language": ["command", "args..."] } } }
+  //
+  // Default server commands include:
+  //   python     → ["pylsp"]
+  //   typescript → ["typescript-language-server", "--stdio"]
+  //   go         → ["gopls"]
+  //   rust       → ["rust-analyzer"]
+  //   java       → ["jdtls"]
+  //   c/cpp      → ["clangd"]
+  //   csharp     → ["omnisharp"]
+  //   ...and many more
+  // ----------------------------------------------------------
+  "lsp": {
+    "servers": {
+      // Use pyright instead of default pylsp for Python
+      "python": ["pyright-langserver", "--stdio"],
+
+      // TypeScript with custom config
+      "typescript": ["typescript-language-server", "--stdio"],
+
+      // Go with gopls (default)
+      "go": ["gopls"],
+
+      // Rust with rust-analyzer (default)
+      "rust": ["rust-analyzer"],
+
+      // Java with Eclipse JDT
+      "java": ["jdtls"],
+
+      // C/C++ with clangd
+      "cpp": ["clangd"],
+
+      // Custom: Lua language server
+      "lua": ["lua-language-server"]
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Agents
+  // ----------------------------------------------------------
+  // Customize built-in agents or add custom ones.
+  // Built-in agents: berserker, plan, general, explore, compaction,
+  //   title, summary, consultant, critic, executor
+  // (Note: the former primary coding agent was renamed to "berserker".)
+  //
+  // Agent modes:
+  //   - "primary":   Main user-facing agents
+  //   - "subagent":  Delegated task agents
+  //   - "hidden":    Internal utility agents
+  //
+  // Permission levels:
+  //   - "full":       All tools allowed
+  //   - "restricted": Tools are scoped via options.tools
+  //
+  // Schema fields only: name, description, mode, model, prompt,
+  // native, hidden, permission, options, top_p, temperature, color,
+  // variant, steps. Custom agents MUST include a non-empty prompt.
+  // Built-in names without a prompt get it auto-filled.
+  // ----------------------------------------------------------
+  "agents": [
+    // Override the default model for the berserker agent
+    {
+      "name": "berserker",
+      "description": "Primary coding agent for implementation tasks",
+      "mode": "primary",
+      "model": "gpt-4o",
+      "permission": "full"
+    },
+
+    // Plan agent uses read-only tools
+    {
+      "name": "plan",
+      "description": "Code analysis and planning agent",
+      "mode": "primary",
+      "model": "claude-sonnet-4-20250514",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "ls", "glob", "grep"]
+      }
+    },
+
+    // General-purpose subagent
+    {
+      "name": "general",
+      "description": "General-purpose subagent for complex multi-step tasks",
+      "mode": "subagent",
+      "model": "gpt-4o",
+      "permission": "full"
+    },
+
+    // Exploration specialist
+    {
+      "name": "explore",
+      "description": "Codebase exploration and discovery subagent",
+      "mode": "subagent",
+      "model": "gpt-4o-mini",
+      "permission": "restricted"
+    },
+
+    // Custom agent example (must include a prompt)
+    {
+      "name": "code-reviewer",
+      "mode": "subagent",
+      "model": "claude-3.5-sonnet-20241022",
+      "prompt": "You are a senior code reviewer specializing in Python best practices, security, and performance.",
+      "description": "Code review specialist agent",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "ls", "lsp"]
+      }
+    }
+  ],
+
+  // ----------------------------------------------------------
+  // Plugins
+  // ----------------------------------------------------------
+  // Load custom Python plugins to extend berserker functionality.
+  // Each plugin must be a Python file with a Plugin class that
+  // inherits from berserker.plugin_system.Plugin.
+  // ----------------------------------------------------------
+  "plugins": [
+    {
+      "name": "custom-formatter",
+      "path": "/path/to/plugins/custom_formatter.py",
+      "version": "1.0.0"
+    },
+    {
+      "name": "lint-checker",
+      "path": "{file:plugins/lint_checker.py}",
+      "version": "2.1.0"
+    }
+  ]
+
+  // ----------------------------------------------------------
+  // Substitution Examples
+  // ----------------------------------------------------------
+  // {env:VAR_NAME}  → Replaced with environment variable value
+  // {file:path}     → Replaced with file contents (relative to the
+  //                   config file's directory)
+  //
+  // These work anywhere in string values throughout the config.
+  // Examples used above:
+  //   "{env:OPENAI_API_KEY}"  → Gets API key from environment
+  //   "{file:plugins/lint_checker.py}" → Reads file content
+  // ----------------------------------------------------------
+
+  // ----------------------------------------------------------
+  // Minimal Configuration Example
+  // ----------------------------------------------------------
+  // If you just want to get started quickly, here's the minimum:
+  //
+  // {
+  //   "providers": {
+  //     "openai": {
+  //       "type": "openai",
+  //       "api_key": "{env:OPENAI_API_KEY}"
+  //     }
+  //   }
+  // }
+  // ----------------------------------------------------------
+}

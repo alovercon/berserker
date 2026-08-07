@@ -1,0 +1,287 @@
+// ============================================================
+// berserker — Full-Featured Configuration Example
+// ============================================================
+// This file demonstrates ALL available configuration options
+// with detailed comments. Supports JSONC (JSON with Comments).
+//
+// Config layer merge order (later overrides earlier):
+//   1. managed   — enterprise/MDM settings (not implemented)
+//   2. global    — {config_dir}/config.json
+//   3. custom    — user-specified config file path
+//   4. project   — {cwd}/berserker.json[c] or {cwd}/.berserker/config.json[c]
+//   5. inline    — dict passed to load_config()
+// ============================================================
+{
+  // ----------------------------------------------------------
+  // LLM Providers
+  // ----------------------------------------------------------
+  // Each provider entry requires a "type" field. The key becomes
+  // the provider_id. Native providers have their own classes;
+  // OpenAI-compatible providers use OpenAICompatibleProvider.
+  //
+  // Native types: openai, anthropic, google, azure, mistral, amazon_bedrock
+  // OpenAI-compatible types: groq, openrouter, deepinfra, deepseek,
+  //   cerebras, together, perplexity, xai, venice, gitlab, bailian,
+  //   bailian_coding
+  // ----------------------------------------------------------
+  "providers": {
+    // OpenAI native provider
+    "openai": {
+      "type": "openai",
+      "api_key": "{env:OPENAI_API_KEY}",
+      "models": [
+        {"name": "gpt-4o", "context_window": 128000, "max_output_tokens": 16384, "compaction_buffer": 20000},
+        {"name": "gpt-4o-mini", "context_window": 128000, "max_output_tokens": 16384},
+        {"name": "o1", "context_window": 200000, "max_output_tokens": 100000},
+        {"name": "o3-mini", "context_window": 200000, "max_output_tokens": 100000}
+      ]
+    },
+
+    // Anthropic native provider
+    "anthropic": {
+      "type": "anthropic",
+      "api_key": "{env:ANTHROPIC_API_KEY}",
+      "models": [
+        {"name": "claude-sonnet-4-20250514", "context_window": 200000, "max_output_tokens": 8192},
+        {"name": "claude-3.5-sonnet-20241022", "context_window": 200000, "max_output_tokens": 8192, "compaction_buffer": 30000},
+        {"name": "claude-3.5-haiku-20241022", "context_window": 200000, "max_output_tokens": 8192}
+      ]
+    },
+
+    // Google (Gemini) native provider
+    "google": {
+      "type": "google",
+      "api_key": "{env:GOOGLE_API_KEY}",
+      "models": [
+        {"name": "gemini-2.0-flash", "context_window": 1000000, "max_output_tokens": 8192},
+        {"name": "gemini-1.5-pro", "context_window": 2000000, "max_output_tokens": 8192}
+      ]
+    },
+
+    // Groq (OpenAI-compatible) — auto-resolves base_url
+    "groq": {
+      "type": "groq",
+      "api_key": "{env:GROQ_API_KEY}",
+      "models": [
+        {"name": "llama-3.1-70b", "context_window": 128000, "max_output_tokens": 8192},
+        {"name": "mixtral-8x7b", "context_window": 32768, "max_output_tokens": 4096}
+      ]
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Agents (list-based format)
+  // ----------------------------------------------------------
+  // Built-in agents: berserker, plan, general, explore, compaction,
+  //   title, summary, consultant, critic, executor
+  // (Note: the former primary coding agent was renamed to "berserker".)
+  //
+  // Agent modes:
+  //   - "primary":   Main user-facing agents
+  //   - "subagent":  Delegated task agents
+  //   - "hidden":    Internal utility agents
+  //
+  // Permission levels:
+  //   - "full":       All tools allowed
+  //   - "restricted": Tools are scoped via options.tools
+  //
+  // NOTE: Built-in agent names auto-fill their 'prompt' from external
+  // files or inline fallback when omitted. Custom agents MUST include
+  // a non-empty 'prompt'.
+  // ----------------------------------------------------------
+  "agents": [
+    // Override built-in: use GPT-4o for the berserker agent
+    {
+      "name": "berserker",
+      "description": "Primary coding agent for implementation tasks",
+      "mode": "primary",
+      "model": "openai/gpt-4o",
+      "permission": "full",
+      "options": {
+        "max_tool_iterations": 100000
+      },
+      "temperature": 0.2,
+      "color": "#3B82F6"
+    },
+
+    // Override built-in: use Claude for planning
+    {
+      "name": "plan",
+      "description": "Code analysis and planning agent",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "permission": "restricted",
+      "options": {
+        "max_tool_iterations": 100000,
+        "tools": ["read", "ls", "glob", "grep", "task"]
+      },
+      "temperature": 0.1,
+      "color": "#8B5CF6"
+    },
+
+    // Override built-in: use a fast model for exploration
+    {
+      "name": "explore",
+      "description": "Codebase exploration and discovery subagent",
+      "mode": "subagent",
+      "model": "groq/llama-3.1-70b",
+      "permission": "restricted",
+      "options": {
+        "max_tool_iterations": 50000
+      }
+    },
+
+    // Custom agent: Security Auditor
+    {
+      "name": "security-auditor",
+      "description": "Scans code for security vulnerabilities and suggests remediation",
+      "mode": "subagent",
+      "model": "anthropic/claude-3.5-sonnet-20241022",
+      "prompt": "You are a security audit specialist. Analyze code for:\n- SQL injection vulnerabilities\n- XSS attacks\n- Authentication bypasses\n- Insecure data storage\n\nProvide specific line numbers and fix suggestions.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "lsp"],
+        "max_tool_iterations": 50
+      },
+      "temperature": 0.3,
+      "top_p": 0.9,
+      "color": "#EF4444",
+      "variant": "strict",
+      "steps": 100
+    },
+
+    // Custom agent: Test Writer
+    {
+      "name": "test-writer",
+      "description": "Generates comprehensive unit tests for Python code",
+      "mode": "subagent",
+      "model": "openai/gpt-4o",
+      "prompt": "You are a test writing specialist. Create thorough unit tests using pytest.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "write", "glob", "grep"],
+        "max_tool_iterations": 30
+      },
+      "temperature": 0.5,
+      "color": "#10B981"
+    }
+  ],
+
+  // ----------------------------------------------------------
+  // Permissions
+  // ----------------------------------------------------------
+  // Controls which tool actions are allowed, denied, or require
+  // user confirmation. Rules are evaluated by priority (higher
+  // first), then agent-specific rules before global ones.
+  // First match wins. Path patterns support glob matching (fnmatch).
+  // ----------------------------------------------------------
+  "permissions": [
+    // Allow read operations without confirmation
+    { "tool": "read", "action": "allow" },
+    { "tool": "ls", "action": "allow" },
+    { "tool": "glob", "action": "allow" },
+    { "tool": "grep", "action": "allow" },
+
+    // Ask before write/edit operations
+    { "tool": "write", "action": "ask" },
+    { "tool": "edit", "action": "ask" },
+    { "tool": "multiedit", "action": "ask" },
+    { "tool": "apply_patch", "action": "ask" },
+
+    // Ask before running shell commands
+    { "tool": "bash", "action": "ask" }
+
+    // Example: Allow writes to specific directories without asking
+    // { "tool": "write", "action": "allow", "path": "src/**/*.py" },
+    // { "tool": "write", "action": "allow", "path": "tests/**/*.py" },
+
+    // Example: Deny writes to config files
+    // { "tool": "write", "action": "deny", "path": "*.json" },
+    // { "tool": "write", "action": "deny", "path": "*.yaml" }
+  ],
+
+  // ----------------------------------------------------------
+  // MCP (Model Context Protocol) Servers
+  // ----------------------------------------------------------
+  // Connect to local or remote MCP servers to discover and use
+  // external tools. Supports stdio and http transports.
+  // ----------------------------------------------------------
+  "mcp": {
+    "servers": {
+      // Local MCP server via stdio transport
+      "filesystem": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+      },
+
+      // Remote MCP server via HTTP transport
+      "remote-tools": {
+        "transport": "http",
+        "url": "https://mcp.example.com/sse",
+        "api_key": "{env:MCP_API_KEY}"
+      }
+    }
+  },
+
+  // ----------------------------------------------------------
+  // LSP (Language Server Protocol) Servers
+  // ----------------------------------------------------------
+  // Override default LSP server commands per language.
+  // ----------------------------------------------------------
+  "lsp": {
+    "servers": {
+      // Use pyright instead of default pylsp for Python
+      "python": ["pyright-langserver", "--stdio"],
+      "typescript": ["typescript-language-server", "--stdio"],
+      "go": ["gopls"],
+      "rust": ["rust-analyzer"],
+      "cpp": ["clangd"]
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Compaction
+  // ----------------------------------------------------------
+  // compact_threshold is a FRACTION of the model's context window,
+  // not an absolute token count. The token threshold is computed as
+  // int(model_limit * compact_threshold).
+  // ----------------------------------------------------------
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "reserved": 20000,
+    "prune_protect": 40000,
+    "prune_minimum": 20000,
+    "compact_threshold": 0.8
+  },
+
+  // ----------------------------------------------------------
+  // Plugins
+  // ----------------------------------------------------------
+  // Load custom Python plugins to extend berserker functionality.
+  // ----------------------------------------------------------
+  "plugins": [
+    {
+      "name": "custom-formatter",
+      "path": "/path/to/plugins/custom_formatter.py",
+      "version": "1.0.0"
+    }
+  ],
+
+  // ----------------------------------------------------------
+  // Subagent Timeout
+  // ----------------------------------------------------------
+  // Maximum time (seconds) to wait for subagent completion.
+  // ----------------------------------------------------------
+  "subagent_timeout": 1800,
+
+  // ----------------------------------------------------------
+  // Logging
+  // ----------------------------------------------------------
+  "logging": {
+    "enabled": true,
+    "file": "berserker.log",
+    "level": "DEBUG"
+  }
+}

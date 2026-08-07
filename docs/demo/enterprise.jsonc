@@ -1,0 +1,338 @@
+// ============================================================
+// berserker — Enterprise Configuration Example
+// ============================================================
+// Demonstrates enterprise-grade configuration with:
+// - Multiple provider fallback chains
+// - Strict permission policies
+// - Custom agents with scoped tool access
+// - MCP server integrations
+// - LSP server overrides
+// - Plugin system integration
+// - Structured logging
+// ============================================================
+{
+  // ----------------------------------------------------------
+  // Provider Chain with Fallback
+  // ----------------------------------------------------------
+  // Primary: Anthropic Claude (best for code quality)
+  // Fallback: OpenAI GPT-4o (reliable, fast)
+  // Budget: Groq Llama (cost-effective for exploration)
+  // ----------------------------------------------------------
+  "providers": {
+    "anthropic": {
+      "type": "anthropic",
+      "api_key": "{env:ANTHROPIC_API_KEY}",
+      "models": [
+        {
+          "name": "claude-sonnet-4-20250514",
+          "context_window": 200000,
+          "max_output_tokens": 8192,
+          "compaction_buffer": 25000
+        },
+        {
+          "name": "claude-3.5-sonnet-20241022",
+          "context_window": 200000,
+          "max_output_tokens": 8192,
+          "compaction_buffer": 30000
+        },
+        {
+          "name": "claude-3.5-haiku-20241022",
+          "context_window": 200000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+
+    "openai": {
+      "type": "openai",
+      "api_key": "{env:OPENAI_API_KEY}",
+      "models": [
+        {"name": "gpt-4o", "context_window": 128000, "max_output_tokens": 16384, "compaction_buffer": 20000},
+        {"name": "gpt-4o-mini", "context_window": 128000, "max_output_tokens": 16384},
+        {"name": "o1", "context_window": 200000, "max_output_tokens": 100000}
+      ]
+    },
+
+    "groq": {
+      "type": "groq",
+      "api_key": "{env:GROQ_API_KEY}",
+      "models": [
+        {"name": "llama-3.1-70b", "context_window": 128000, "max_output_tokens": 8192},
+        {"name": "llama-3.1-8b", "context_window": 128000, "max_output_tokens": 8192}
+      ]
+    },
+
+    // Azure OpenAI for compliance requirements
+    "azure": {
+      "type": "azure",
+      "api_key": "{env:AZURE_OPENAI_API_KEY}",
+      "azure_endpoint": "https://your-resource.openai.azure.com/",
+      "api_version": "2024-02-01",
+      "models": [
+        {"name": "gpt-4o", "context_window": 128000, "max_output_tokens": 16384},
+        {"name": "gpt-4-turbo", "context_window": 128000, "max_output_tokens": 4096}
+      ]
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Agents Configuration
+  // ----------------------------------------------------------
+  // Built-in agent overrides with enterprise models.
+  // Custom agents with strict permission scoping.
+  // Built-in agents: berserker, plan, general, explore, compaction,
+  //   title, summary, consultant, critic, executor
+  // (Note: the former primary coding agent was renamed to "berserker".)
+  // ----------------------------------------------------------
+  "agents": [
+    // Berserker agent: Claude Sonnet 4 for best code quality
+    {
+      "name": "berserker",
+      "description": "Primary coding agent for implementation tasks",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "permission": "full",
+      "options": {
+        "max_tool_iterations": 100000
+      },
+      "temperature": 0.2,
+      "top_p": 0.9,
+      "color": "#3B82F6"
+    },
+
+    // Plan agent: GPT-4o for structured analysis
+    {
+      "name": "plan",
+      "description": "Code analysis and planning agent",
+      "mode": "primary",
+      "model": "openai/gpt-4o",
+      "permission": "restricted",
+      "options": {
+        "max_tool_iterations": 100000,
+        "tools": ["read", "ls", "glob", "grep", "task", "lsp"]
+      },
+      "temperature": 0.1,
+      "color": "#8B5CF6"
+    },
+
+    // General subagent: Claude 3.5 Sonnet
+    {
+      "name": "general",
+      "description": "General-purpose subagent for complex multi-step tasks",
+      "mode": "subagent",
+      "model": "anthropic/claude-3.5-sonnet-20241022",
+      "permission": "full",
+      "options": {
+        "max_tool_iterations": 50000
+      }
+    },
+
+    // Explore subagent: Groq Llama for cost efficiency
+    {
+      "name": "explore",
+      "description": "Codebase exploration and discovery subagent",
+      "mode": "subagent",
+      "model": "groq/llama-3.1-70b",
+      "permission": "restricted",
+      "options": {
+        "max_tool_iterations": 30000
+      }
+    },
+
+    // Custom: Security Auditor with strict tool scoping
+    {
+      "name": "security-auditor",
+      "description": "Scans code for security vulnerabilities and suggests remediation",
+      "mode": "subagent",
+      "model": "anthropic/claude-3.5-sonnet-20241022",
+      "prompt": "You are a security audit specialist. Analyze code for:\n- SQL injection vulnerabilities\n- XSS attacks\n- Authentication bypasses\n- Insecure data storage\n- Dependency vulnerabilities\n\nProvide specific line numbers, CVE references when applicable, and fix suggestions.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "lsp"],
+        "max_tool_iterations": 50
+      },
+      "temperature": 0.3,
+      "top_p": 0.9,
+      "color": "#EF4444",
+      "variant": "strict",
+      "steps": 100
+    },
+
+    // Custom: Test Writer
+    {
+      "name": "test-writer",
+      "description": "Generates comprehensive unit tests for Python code",
+      "mode": "subagent",
+      "model": "openai/gpt-4o",
+      "prompt": "You are a test writing specialist. Create thorough unit tests using pytest. Follow AAA pattern (Arrange-Act-Assert). Include edge cases and error conditions.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "write", "glob", "grep", "bash"],
+        "max_tool_iterations": 30
+      },
+      "temperature": 0.5,
+      "color": "#10B981"
+    },
+
+    // Custom: Code Reviewer
+    {
+      "name": "code-reviewer",
+      "description": "Senior code reviewer specializing in best practices",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "You are a senior code reviewer. Review code for:\n- Best practices adherence\n- Potential bugs and edge cases\n- Performance issues\n- Readability and maintainability\n- Security concerns\n\nProvide constructive feedback with specific examples.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "grep", "glob", "ls", "lsp"],
+        "max_tool_iterations": 40
+      },
+      "temperature": 0.2,
+      "color": "#F59E0B"
+    },
+
+    // Custom: Documentation Writer
+    {
+      "name": "doc-writer",
+      "description": "Technical documentation and API reference writer",
+      "mode": "subagent",
+      "model": "openai/gpt-4o",
+      "prompt": "You are a technical writer specializing in developer documentation. Write clear, concise documentation with examples. Follow Google Developer Documentation Style Guide.",
+      "permission": "restricted",
+      "options": {
+        "tools": ["read", "write", "glob"],
+        "max_tool_iterations": 25
+      },
+      "temperature": 0.7,
+      "color": "#8B5CF6"
+    }
+  ],
+
+  // ----------------------------------------------------------
+  // Strict Permission Policies
+  // ----------------------------------------------------------
+  // Rules evaluated by priority (higher first), then agent-specific
+  // rules before global ones. First match wins.
+  // Path patterns support glob matching (fnmatch).
+  // ----------------------------------------------------------
+  "permissions": [
+    // Allow read operations without confirmation
+    { "tool": "read", "action": "allow" },
+    { "tool": "ls", "action": "allow" },
+    { "tool": "glob", "action": "allow" },
+    { "tool": "grep", "action": "allow" },
+    { "tool": "todo", "action": "allow" },
+    { "tool": "selection", "action": "allow" },
+    { "tool": "task", "action": "allow" },
+
+    // Allow LSP tool without confirmation (single "lsp" tool id)
+    { "tool": "lsp", "action": "allow" },
+
+    // Ask before write/edit operations
+    { "tool": "write", "action": "ask" },
+    { "tool": "edit", "action": "ask" },
+    { "tool": "multiedit", "action": "ask" },
+    { "tool": "apply_patch", "action": "ask" },
+
+    // Ask before running shell commands
+    { "tool": "bash", "action": "ask" }
+
+    // Example: Allow writes to test directories without asking
+    // { "tool": "write", "action": "allow", "path": "tests/**/*.py" },
+
+    // Example: Deny writes to config files
+    // { "tool": "write", "action": "deny", "path": "*.json" },
+    // { "tool": "write", "action": "deny", "path": "*.yaml" },
+    // { "tool": "write", "action": "deny", "path": "*.toml" },
+
+    // Example: Allow bash commands in scripts directory only
+    // { "tool": "bash", "action": "allow", "path": "scripts/*" }
+  ],
+
+  // ----------------------------------------------------------
+  // MCP (Model Context Protocol) Servers
+  // ----------------------------------------------------------
+  "mcp": {
+    "servers": {
+      // Filesystem access with restricted paths
+      "filesystem": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+      },
+
+      // Database exploration
+      "sqlite-explorer": {
+        "transport": "stdio",
+        "command": "python",
+        "args": ["-m", "mcp_sqlite_server", "./data/database.db"]
+      },
+
+      // Remote MCP server
+      "remote-tools": {
+        "transport": "http",
+        "url": "https://mcp.example.com/sse",
+        "api_key": "{env:MCP_API_KEY}"
+      }
+    }
+  },
+
+  // ----------------------------------------------------------
+  // LSP (Language Server Protocol) Servers
+  // ----------------------------------------------------------
+  "lsp": {
+    "servers": {
+      "python": ["pyright-langserver", "--stdio"],
+      "typescript": ["typescript-language-server", "--stdio"],
+      "go": ["gopls"],
+      "rust": ["rust-analyzer"],
+      "java": ["jdtls"],
+      "cpp": ["clangd"],
+      "lua": ["lua-language-server"]
+    }
+  },
+
+  // ----------------------------------------------------------
+  // Compaction
+  // ----------------------------------------------------------
+  // compact_threshold is a FRACTION of the model's context window,
+  // not an absolute token count.
+  // ----------------------------------------------------------
+  "compaction": {
+    "auto": true,
+    "prune": true,
+    "reserved": 20000,
+    "prune_protect": 40000,
+    "prune_minimum": 20000,
+    "compact_threshold": 0.8
+  },
+
+  // ----------------------------------------------------------
+  // Plugins
+  // ----------------------------------------------------------
+  "plugins": [
+    {
+      "name": "session-timer",
+      "path": "{file:plugins/session_timer.py}",
+      "version": "1.0.0"
+    },
+    {
+      "name": "custom-formatter",
+      "path": "/path/to/plugins/custom_formatter.py",
+      "version": "1.0.0"
+    }
+  ],
+
+  // ----------------------------------------------------------
+  // Subagent Timeout (seconds)
+  // ----------------------------------------------------------
+  "subagent_timeout": 1800,
+
+  // ----------------------------------------------------------
+  // Structured Logging
+  // ----------------------------------------------------------
+  "logging": {
+    "enabled": true,
+    "file": "berserker.log",
+    "level": "DEBUG"
+  }
+}

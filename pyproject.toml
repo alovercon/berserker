@@ -1,0 +1,197 @@
+[build-system]
+
+requires = ["setuptools>=65.0", "wheel"]
+
+build-backend = "setuptools.build_meta"
+
+
+
+[project]
+name = "berserker"
+dynamic = ["version"]
+description = "The open source AI coding agent (Python port)"
+
+readme = "README.md"
+
+license = {text = "MIT"}
+
+requires-python = ">=3.8.10"
+
+authors = [
+
+    {name = "Berserker Contributors"},
+
+]
+
+classifiers = [
+
+    "Development Status :: 3 - Alpha",
+
+    "Intended Audience :: Developers",
+
+    "License :: OSI Approved :: MIT License",
+
+    "Programming Language :: Python :: 3",
+
+    "Programming Language :: Python :: 3.8",
+
+    "Programming Language :: Python :: 3.9",
+
+    "Programming Language :: Python :: 3.10",
+
+    "Programming Language :: Python :: 3.11",
+
+    "Programming Language :: Python :: 3.12",
+
+    "Operating System :: OS Independent",
+
+]
+
+
+
+dependencies = [
+
+    # LLM SDKs (Python 3.8 compatible versions)
+
+    "openai<2.0",          # 1.55.3 last compatible
+
+    "anthropic<0.50",      # 0.49.0 last compatible
+
+    # JSONC parsing
+
+    "jsoncomment>=0.4.0",
+
+    # YAML parsing (for skill frontmatter and config)
+
+    "PyYAML>=6.0",
+
+    # JSON schema validation
+
+    "jsonschema>=4.0.0,<4.18.0",  # <4.18.0 avoids referencing/rpds-py (Win7 incompatible)
+
+    # Markdown to HTML rendering for chat bubble preview dialog
+
+    "mistune>=3.0,<4.0",
+
+    # Token counting (optional - falls back to character estimation if unavailable)
+
+    # "tiktoken>=0.7.0,<1.0",  # Requires Rust compiler on win32. Install manually if needed.
+
+    # Type hints backport for 3.8
+
+    "typing-extensions>=4.7.0; python_version < '3.10'",
+
+    # PyInstaller (pinned for Windows 7 compatibility)
+
+    "pyinstaller==5.13.2",
+
+]
+
+
+
+[project.optional-dependencies]
+
+gui = [
+
+    "wxPython>=4.2.0,<5.0",
+
+]
+
+google = [
+
+    "google-generativeai>=0.5.0,<1.0",
+
+]
+
+dev = [
+
+    "pytest>=7.4.0,<9.0",
+
+    "pytest-asyncio>=0.21.0,<1.0",
+
+    "pytest-cov>=4.1.0,<6.0",
+
+    "black>=23.0.0,<25.0",
+
+    "ruff>=0.1.0,<1.0",
+
+    "mypy>=1.5.0,<2.0",
+
+    "build>=1.0.0,<2.0",
+
+    "twine>=4.0.0,<6.0",
+
+]
+
+
+
+[project.scripts]
+berserker = "berserker.cli_entry:main"
+
+[project.gui-scripts]
+berserker-gui = "berserker.gui_entry:main"
+
+
+
+[tool.setuptools.packages.find]
+
+include = ["berserker*"]
+
+
+
+[tool.setuptools.package-data]
+berserker = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = {attr = "berserker.__version__"}
+
+
+
+[tool.pytest.ini_options]
+
+testpaths = ["tests"]
+
+asyncio_mode = "auto"
+
+
+
+[tool.black]
+
+line-length = 100
+
+target-version = ["py38"]
+
+
+
+[tool.ruff]
+
+target-version = "py38"
+
+line-length = 100
+
+
+
+[tool.ruff.lint]
+
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM"]
+
+ignore = [
+
+    "E501",  # line length (handled by black)
+
+    "UP007", # X | Y union types (not 3.8 compatible)
+
+]
+
+
+
+[tool.mypy]
+
+python_version = "3.8"
+
+warn_return_any = true
+
+warn_unused_configs = true
+
+disallow_untyped_defs = false
+
