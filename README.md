@@ -1,6 +1,6 @@
 # berserker
 
-**开源 AI 编码智能体（Python 移植版）** — 一款强大的自主编程助手：能够规划、编写、编辑、运行命令，并在真实代码库上迭代，支持终端（CLI）与原生 GUI。
+**开源 AI 编码智能体** — 一款强大的自主编程助手：能够规划、编写、编辑、运行命令，并在真实代码库上迭代，支持终端（CLI）与原生 GUI。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB)
