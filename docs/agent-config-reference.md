@@ -632,7 +632,8 @@ Compaction is configured under a `compaction` key in the config dict. `load_comp
     "reserved": 20000,
     "prune_protect": 40000,
     "prune_minimum": 20000,
-    "compact_threshold": 0.8
+    "compact_threshold": 0.8,
+    "keep_last_turns": 2
   }
 }
 ```
@@ -647,6 +648,7 @@ Compaction is configured under a `compaction` key in the config dict. `load_comp
 | `prune_protect` | `int` | `40000` | Protect the last N tokens of tool call content from pruning |
 | `prune_minimum` | `int` | `20000` | Minimum total prunable tokens before pruning activates |
 | `compact_threshold` | `float` | `0.8` | Fraction of the context window that triggers compaction. The threshold in tokens is `int(model_limit * compact_threshold)` |
+| `keep_last_turns` | `int` | `2` | Number of most recent turns (split at user messages, tool groups never split) kept verbatim during compaction; older turns are summarized |
 
 `compact_threshold` is a fraction, not an absolute token count. A value like `80000` is meaningful only if the model's context window times 0.8 happens to equal 80000; use a fraction such as `0.8` instead.
 

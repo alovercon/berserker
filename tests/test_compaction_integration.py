@@ -95,6 +95,7 @@ class TestCompactionConfig:
             "prune_protect": 50000,
             "prune_minimum": 15000,
             "compact_threshold": 0.9,
+            "keep_last_turns": 2,
         }
 
 

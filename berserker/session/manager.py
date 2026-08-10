@@ -14,6 +14,7 @@ import json
 import logging
 import threading
 import time
+import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 _active_contexts_lock = threading.Lock()
@@ -576,6 +577,78 @@ class SessionManager:
             ctx = self._active_contexts.get(session_id)
         if ctx is not None:
             ctx.refresh()
+
+    def archive_messages(self, session_id, reason="compaction"):
+        # type: (str, str) -> str
+        """Archive the session's current messages before they are replaced.
+
+        Compaction deletes the originals via replace_messages(); this keeps a
+        recoverable copy in the message_archive table. Returns the archive id.
+        """
+        db = get_db()
+        rows = db.fetchall(
+            "SELECT data FROM message WHERE session_id = ? ORDER BY created_at ASC, id ASC",
+            (session_id,),
+        )
+        if not rows:
+            return ""
+        workspace_id = None
+        try:
+            srow = db.fetchone(
+                "SELECT workspace_id FROM session WHERE id = ?", (session_id,))
+            workspace_id = srow["workspace_id"] if srow else None
+        except Exception:
+            pass
+        aid = "arc_" + uuid.uuid4().hex[:12]
+        now = int(time.time())
+        db.execute(
+            "INSERT INTO message_archive (id, session_id, workspace_id, reason,"
+            " message_count, data, created_at) VALUES (?,?,?,?,?,?,?)",
+            (aid, session_id, workspace_id, reason, len(rows),
+             json.dumps([r["data"] if isinstance(r["data"], dict) else json.loads(r["data"])
+                         for r in rows], ensure_ascii=False), now),
+        )
+        db.commit()
+        logger.info(
+            "Archived %d messages for session %s before %s (archive %s)",
+            len(rows), session_id, reason, aid,
+        )
+        return aid
+
+    def list_archives(self, session_id):
+        # type: (str) -> List[Dict[str, Any]]
+        """List compaction archives of a session (metadata only)."""
+        db = get_db()
+        rows = db.fetchall(
+            "SELECT id, reason, message_count, created_at FROM message_archive"
+            " WHERE session_id = ? ORDER BY created_at DESC",
+            (session_id,),
+        )
+        return [dict(r) for r in rows]
+
+    def get_archive(self, archive_id):
+        # type: (str) -> Optional[Dict[str, Any]]
+        """Return one archive with its full message list, or None."""
+        db = get_db()
+        row = db.fetchone(
+            "SELECT id, session_id, reason, message_count, data, created_at"
+            " FROM message_archive WHERE id = ?",
+            (archive_id,),
+        )
+        if row is None:
+            return None
+        try:
+            messages = json.loads(row["data"] or "[]")
+        except (ValueError, TypeError):
+            messages = []
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "reason": row["reason"],
+            "message_count": row["message_count"],
+            "created_at": row["created_at"],
+            "messages": messages,
+        }
 
     def replace_messages(self, session_id, messages):
         # type: (str, List[Dict[str, Any]]) -> int

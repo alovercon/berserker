@@ -273,6 +273,7 @@ class AgentExecutor(object):
                     reason="token_overflow",
                     do_fallback_truncate=True,
                     system_msg=system_msg,
+                    abort_event=abort_event,
                 )
                 full_messages = result["full_messages"]
             else:
@@ -409,6 +410,7 @@ class AgentExecutor(object):
                         reason="loop_token_overflow",
                         do_fallback_truncate=False,
                         system_msg=system_msg,
+                        abort_event=abort_event,
                     )
                     full_messages = result["full_messages"]
                     agent_monitor.update_phase(agent_id, "thinking", "Calling LLM...")
@@ -483,6 +485,7 @@ class AgentExecutor(object):
                     reason="context_retry",
                     do_fallback_truncate=False,
                     system_msg=system_msg,
+                    abort_event=abort_event,
                 )
                 full_messages = result["full_messages"]
                 agent_monitor.update_phase(agent_id, "thinking", "Calling LLM (retry)...")
@@ -998,6 +1001,7 @@ class AgentExecutor(object):
         reason="token_overflow",  # type: str
         do_fallback_truncate=False,  # type: bool
         system_msg=None,  # type: Optional[ChatMessage]
+        abort_event=None,  # type: Optional[Any]
     ):
         # type: (...) -> Dict[str, Any]
         """Unified compaction logic that replaces the 3 duplicated copies.
@@ -1020,6 +1024,8 @@ class AgentExecutor(object):
             reason: Event reason string.
             do_fallback_truncate: Whether to apply fallback truncation after compaction.
             system_msg: System message for fallback truncation.
+            abort_event: Optional threading.Event forwarded to manager.compact
+                         so a user abort also cancels the summarization pass.
 
         Returns:
             Dict with: full_messages, tokens_freed, before_tokens, after_tokens
@@ -1050,7 +1056,8 @@ class AgentExecutor(object):
         before_tokens = token_counter.count_messages(full_messages, model_name)
         full_messages = self._manager.prune_messages(full_messages, session_id=session_id)
         full_messages = self._manager.compact(
-            full_messages, max_tokens=context_limit - strategy.config.reserved
+            full_messages, max_tokens=context_limit - strategy.config.reserved,
+            abort_event=abort_event,
         )
 
         # 4. Calculate tokens after compaction
@@ -1106,7 +1113,12 @@ class AgentExecutor(object):
             len(full_messages),
         )
 
-        # 7. Persist compacted messages
+        # 7. Persist compacted messages (archive the originals first so the
+        # pre-compaction history stays recoverable)
+        try:
+            session_manager.archive_messages(session_id, reason=reason)
+        except Exception as e:
+            logger.warning("Failed to archive messages before compaction: %s", e)
         try:
             compacted_dicts = [_chat_message_to_dict(m) for m in full_messages]
             session_manager.replace_messages(session_id, compacted_dicts)
@@ -1204,6 +1216,13 @@ class AgentExecutor(object):
             if kept_tokens <= max_tokens:
                 best_drop = max_drop
             # If even keeping min_keep exceeds limit, use best_drop as-is
+
+        # Align the cut point to a tool-group boundary: a kept suffix that
+        # starts with tool messages would orphan them (their assistant
+        # tool_call message was dropped) and strict APIs (DeepSeek) 400 on
+        # unpaired tool messages. Drop those orphans too.
+        while best_drop < len(non_system) and non_system[best_drop].role == "tool":
+            best_drop += 1
 
         kept = non_system[best_drop:]
         result = [system_msg] + kept

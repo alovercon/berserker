@@ -27,6 +27,8 @@ class CompactionConfig:
         prune_protect: Protect last N tokens of tool call content from pruning.
         prune_minimum: Minimum total prunable tokens before pruning activates.
         compact_threshold: Fraction of context window that triggers compaction.
+        keep_last_turns: Number of most recent conversation turns kept verbatim
+            during compaction (older turns are summarized).
     """
 
     auto: bool = True
@@ -35,6 +37,7 @@ class CompactionConfig:
     prune_protect: int = 40000
     prune_minimum: int = 20000
     compact_threshold: float = 0.8
+    keep_last_turns: int = 2
 
     _KNOWN_KEYS = frozenset(
         {
@@ -44,6 +47,7 @@ class CompactionConfig:
             "prune_protect",
             "prune_minimum",
             "compact_threshold",
+            "keep_last_turns",
         }
     )
 
@@ -53,7 +57,8 @@ class CompactionConfig:
         """Create a CompactionConfig from a dict, using defaults for missing keys.
 
         Only accepts known keys (auto, prune, reserved, prune_protect,
-        prune_minimum, compact_threshold). Unknown keys are silently ignored.
+        prune_minimum, compact_threshold, keep_last_turns). Unknown keys are
+        silently ignored.
 
         Args:
             data: Dict with config values.
@@ -97,7 +102,11 @@ class CompactionStrategy:
         # type: (int, int) -> bool
         """Return True if compaction should trigger.
 
-        Compaction triggers when used tokens exceed (model_limit - reserved_buffer).
+        The trigger point is the earlier of the two configured guards:
+        ``compact_threshold`` (fraction of the window — the early warning)
+        and ``reserved`` (absolute safety margin before the hard limit)::
+
+            trigger = min(model_limit * compact_threshold, model_limit - reserved)
 
         Args:
             tokens: Current token count in use.
@@ -106,7 +115,11 @@ class CompactionStrategy:
         Returns:
             True if compaction should be triggered.
         """
-        return tokens > model_limit - self.config.reserved
+        trigger = min(
+            int(model_limit * self.config.compact_threshold),
+            model_limit - self.config.reserved,
+        )
+        return tokens > trigger
 
     def should_prune(self, total_prunable_tokens):
         # type: (int) -> bool

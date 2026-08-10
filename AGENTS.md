@@ -59,7 +59,7 @@ ruff check --isolated --select E,F --ignore E501 <files>
 - **配置位置**：全局 `~/.config/berserker/config.json`；项目 `berserker.json` 或 `.berserker/config.json`。
 - **事件总线**：消息事件名是 `MESSAGE_ADDED`（不是 MESSAGE_APPENDED），会话相关有 `SESSION_CREATED/DELETED/COMPACTED`，压缩/裁剪/快照事件由 agent 层发布。
 - **GUI 入口/线程**：GUI 实现 `DisplayAdapter` 接口（`berserker/gui/controller.py` 的 GUIController），agent 在 daemon 线程跑、UI 经 `wx.CallAfter` 更新；会话消息分页加载（PAGE_SIZE=20，"Load earlier" 头部增量插入）。
-- **存储**：SQLite 14 张表（schema 见 `berserker/storage/schema.py`）；session/message 数据存在 JSON `data` 列；`prune_minimum=20000`、`compact_threshold=0.8`（窗口比例，非绝对 token 数）。
+- **存储**：SQLite 15 张表（schema 见 `berserker/storage/schema.py`）；session/message 数据存在 JSON `data` 列；`prune_minimum=20000`、`compact_threshold=0.8`（窗口比例，非绝对 token 数）。
 
 ## 工具/环境陷阱
 

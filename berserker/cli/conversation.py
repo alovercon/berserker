@@ -1224,6 +1224,16 @@ def _cmd_compact(session_id):
 
         if len(compacted) < len(chat_messages):
 
+            # Archive the originals before replacing (recoverable history)
+
+            try:
+
+                session_manager.archive_messages(session_id, reason="manual-compact")
+
+            except Exception:
+
+                pass
+
             # Convert ChatMessage objects to dicts for replace_messages
 
             compacted_dicts = []
@@ -2171,6 +2181,12 @@ def _execute_agent_turn(messages, session_id, display_adapter=None):
             on_tool_call=_on_tool_call,
 
             on_permission_ask=_on_permission_ask,
+
+            # Wire the session abort event so Ctrl+C also flows into the
+
+            # executor's abort checkpoints (and into compaction).
+
+            abort_event=_current_ctx._abort_event if _current_ctx is not None else None,
 
         )
 

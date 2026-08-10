@@ -842,6 +842,43 @@ BUILT_IN_AGENTS = [agent.name for agent in BUILT_IN_AGENTS_CONFIG]  # type: List
 
 
 
+
+def _msg_token_count(msg):
+    # type: (Any) -> int
+    """Full per-message token count: content + tool-call arguments +
+    reasoning_content (all of these are sent to the API)."""
+    n = count_tokens(msg.content or "")
+    for tc in getattr(msg, "tool_calls", None) or []:
+        fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+        args = fn.get("arguments")
+        if args:
+            n += count_tokens(args if isinstance(args, str) else json.dumps(args, ensure_ascii=False))
+    rc = getattr(msg, "reasoning_content", None)
+    if rc:
+        n += count_tokens(rc)
+    return n
+
+
+def _split_turns(messages):
+    # type: (List[Any]) -> List[List[Any]]
+    """Group messages into turns; a turn starts at each user message.
+
+    Messages before the first user message form a leading prelude group.
+    Turn boundaries never split an assistant(tool_calls)/tool group, so a
+    kept tail is always API-safe.
+    """
+    turns = []
+    current = []
+    for m in messages:
+        if m.role == "user" and current:
+            turns.append(current)
+            current = []
+        current.append(m)
+    if current:
+        turns.append(current)
+    return turns
+
+
 class AgentManager(object):
 
     """Manages agent configurations and execution.
@@ -1558,232 +1595,136 @@ class AgentManager(object):
 
 
 
-    def compact(self, messages, max_tokens=4096):
+    def compact(self, messages, max_tokens=4096, abort_event=None):
+        # type: (List[ChatMessage], int, Any) -> List[ChatMessage]
+        """Compress conversation history (hybrid strategy).
 
-        # type: (List[ChatMessage], int) -> List[ChatMessage]
-
-        """Compress conversation history using AI-driven structured summary.
-
-
-
-        Strategy:
-
-        - If total estimated token count < max_tokens, return messages unchanged.
-
-        - Otherwise, call the compaction agent to produce a 5-section structured
-
-          summary, then return [system_msg, summary_msg].
-
-        - FALLBACK: If compaction agent fails, use simple truncation (keep
-
-          system + last 2 messages).
-
-
-
-        Token estimation: uses count_tokens() from tool/truncate.py (tiktoken or len//4 fallback).
-
-
+        - Under budget: returned unchanged.
+        - Otherwise the OLDER turns are summarized by the compaction agent
+          while the most recent ``keep_last_turns`` turns are kept verbatim
+          (tail capped at 30% of the budget).
+        - Guarantee: the result never exceeds *max_tokens* -- the tail is
+          shed turn by turn, then the summary itself is truncated.
 
         Args:
-
             messages: List of ChatMessage objects to compact.
-
             max_tokens: Maximum token budget (default: 4096).
-
-
+            abort_event: Optional threading.Event forwarded to the compaction
+                         agent's execute call so a user abort also cancels
+                         the summarization pass.
 
         Returns:
-
             Compacted list of ChatMessage objects.
-
         """
-
-        # Estimate total tokens using count_tokens (tiktoken or len//4 fallback)
-
-        estimated_tokens = sum(count_tokens(m.content) for m in messages)
-
-
+        estimated_tokens = sum(_msg_token_count(m) for m in messages)
 
         if estimated_tokens < max_tokens:
-
             return list(messages)
-
-
 
         # Separate system messages from conversation
-
         system_messages = []  # type: List[ChatMessage]
-
         non_system_messages = []  # type: List[ChatMessage]
-
-
-
         for msg in messages:
-
             if msg.role == "system":
-
                 system_messages.append(msg)
-
             else:
-
                 non_system_messages.append(msg)
 
-
-
         if len(non_system_messages) <= 2:
-
             # Not enough messages to compact meaningfully
-
             return list(messages)
 
+        keep = int(getattr(self._compaction_config, "keep_last_turns", 2) or 0)
+        turns = _split_turns(non_system_messages)
 
+        # Tail selection: newest `keep` turns, capped at 30% of the budget.
+        tail_budget = max(1000, int(max_tokens * 0.3))
+        tail = []  # type: List[List[ChatMessage]]
+        tail_tokens = 0
+        for turn in reversed(turns):
+            t = sum(_msg_token_count(m) for m in turn)
+            if len(tail) >= keep or (tail and tail_tokens + t > tail_budget):
+                break
+            tail.insert(0, turn)
+            tail_tokens += t
+        old_turns = turns[: len(turns) - len(tail)]
+        old_msgs = [m for turn in old_turns for m in turn]
 
-        # Try AI-driven compaction via the compaction agent
+        summary_content = ""
+        if old_msgs:
+            # Try AI-driven compaction of the OLDER part via the compaction agent
+            try:
+                compaction_prompt = (
+                    "Provide a detailed prompt for continuing our conversation above.\n"
+                    "Focus on information that would be helpful for continuing the conversation, "
+                    "including what we did, what we're doing, which files we're working on, and "
+                    "what we're going to do next.\n"
+                    "The summary that you construct will be used so that another agent can read it "
+                    "and continue the work. The most recent turns are kept verbatim and are NOT "
+                    "part of this summary.\n\n"
+                    "When constructing the summary, try to stick to this template:\n"
+                    "---\n"
+                    "## Goal\n\n"
+                    "[What goal(s) is the user trying to accomplish?]\n\n"
+                    "## Instructions\n\n"
+                    "- [What important instructions did the user give you that are relevant]\n"
+                    "- [If there is a plan or spec, include information about it so next agent can continue using it]\n\n"
+                    "## Discoveries\n\n"
+                    "[What notable things were learned during this conversation that would be useful "
+                    "for the next agent to know when continuing the work]\n\n"
+                    "## Accomplished\n\n"
+                    "[What work has been completed, what work is still in progress, and what work is left?]\n\n"
+                    "## Relevant files / directories\n\n"
+                    "[Construct a structured list of relevant files that have been read, edited, or created "
+                    "that pertain to the task at hand. If all the files in a directory are relevant, "
+                    "include the path to the directory.]\n"
+                    "---"
+                )
+                compaction_result = self.execute(
+                    agent_name="compaction",
+                    messages=old_msgs
+                    + [ChatMessage(role="user", content=compaction_prompt)],
+                    session_id="compaction-internal",
+                    tool_registry=ToolRegistry(),  # Empty registry — compaction uses read-only tools
+                    on_tool_call=None,
+                    abort_event=abort_event,
+                )
+                summary_content = (compaction_result.get("content") or "").strip()
+            except Exception as exc:
+                logger.warning("AI compaction failed, falling back to truncation: %s", exc)
 
-        try:
+        def _assemble(tail_turns):
+            result = list(system_messages)
+            if summary_content:
+                # 'assistant' role avoids multiple-system-message issues with OpenAI
+                result.append(ChatMessage(role="assistant", content=summary_content))
+            for turn in tail_turns:
+                result.extend(turn)
+            return result
 
-            # Build a prompt asking for structured summary
-
-            compaction_prompt = (
-
-                "Provide a detailed prompt for continuing our conversation above.\n"
-
-                "Focus on information that would be helpful for continuing the conversation, "
-
-                "including what we did, what we're doing, which files we're working on, and "
-
-                "what we're going to do next.\n"
-
-                "The summary that you construct will be used so that another agent can read it "
-
-                "and continue the work.\n\n"
-
-                "When constructing the summary, try to stick to this template:\n"
-
-                "---\n"
-
-                "## Goal\n"
-
-                "\n"
-
-                "[What goal(s) is the user trying to accomplish?]\n"
-
-                "\n"
-
-                "## Instructions\n"
-
-                "\n"
-
-                "- [What important instructions did the user give you that are relevant]\n"
-
-                "- [If there is a plan or spec, include information about it so next agent can continue using it]\n"
-
-                "\n"
-
-                "## Discoveries\n"
-
-                "\n"
-
-                "[What notable things were learned during this conversation that would be useful "
-
-                "for the next agent to know when continuing the work]\n"
-
-                "\n"
-
-                "## Accomplished\n"
-
-                "\n"
-
-                "[What work has been completed, what work is still in progress, and what work is left?]\n"
-
-                "\n"
-
-                "## Relevant files / directories\n"
-
-                "\n"
-
-                "[Construct a structured list of relevant files that have been read, edited, or created "
-
-                "that pertain to the task at hand. If all the files in a directory are relevant, "
-
-                "include the path to the directory.]\n"
-
-                "---"
-
+        if not summary_content and old_msgs:
+            summary_content = (
+                "[Previous conversation summarized: {} messages compressed to save tokens]".format(
+                    len(old_msgs)
+                )
             )
 
-
-
-            # Call the compaction agent with all messages
-
-            compaction_result = self.execute(
-
-                agent_name="compaction",
-
-                messages=non_system_messages
-
-                + [ChatMessage(role="user", content=compaction_prompt)],
-
-                session_id="compaction-internal",
-
-                tool_registry=ToolRegistry(),  # Empty registry — compaction uses read-only tools
-
-                on_tool_call=None,
-
-            )
-
-
-
-            summary_content = compaction_result.get("content", "")
-
-
-
-            if summary_content and summary_content.strip():
-
-                # Success — return system + AI-generated summary
-
-                # Use 'assistant' role to avoid multiple system messages issue with OpenAI
-
-                summary_msg = ChatMessage(role="assistant", content=summary_content.strip())
-
-                result = list(system_messages)
-
-                result.append(summary_msg)
-
-                return result
-
-        except Exception as exc:
-
-            logger.warning("AI compaction failed, falling back to truncation: %s", exc)
-
-
-
-        # FALLBACK: Simple truncation — keep system + last 2 messages
-
-        summary_content = (
-
-            "[Previous conversation summarized: {} messages compressed to save tokens]".format(
-
-                len(non_system_messages) - 2
-
-            )
-
-        )
-
-        # Use 'assistant' role to avoid multiple system messages issue with OpenAI
-
-        summary_msg = ChatMessage(role="assistant", content=summary_content)
-
-        result = list(system_messages)
-
-        result.append(summary_msg)
-
-        result.extend(non_system_messages[-2:])
-
-
-
+        result = _assemble(tail)
+        # Guarantee pass: shed tail turns (oldest first) until within budget.
+        while tail and sum(_msg_token_count(m) for m in result) > max_tokens:
+            tail = tail[1:]
+            result = _assemble(tail)
+        if sum(_msg_token_count(m) for m in result) > max_tokens:
+            # Even the summary alone is over budget -- truncate its text.
+            over = sum(_msg_token_count(m) for m in result)
+            keep_chars = max(2000, len(summary_content) * max_tokens // max(over, 1))
+            result = list(system_messages) + [
+                ChatMessage(
+                    role="assistant",
+                    content=summary_content[:keep_chars] + "\n\u2026[summary truncated]",
+                )
+            ]
         return result
-
 
 
     # ---------------------------------------------------------------------------

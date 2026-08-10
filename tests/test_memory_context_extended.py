@@ -262,18 +262,19 @@ class TestCompactionConfigEdgeCases:
         """Zero reserved buffer should be valid."""
         config = CompactionConfig(reserved=0)
         strategy = CompactionStrategy(config)
-        # With reserved=0, should compact when tokens > model_limit
+        # With reserved=0 the threshold guard binds: min(0.8*100000, 100000) = 80000
+        assert strategy.should_compact(80001, 100000) is True
+        assert strategy.should_compact(80000, 100000) is False
         assert strategy.should_compact(100001, 100000) is True
-        assert strategy.should_compact(100000, 100000) is False
 
     def test_negative_values(self):
         """Negative values should be accepted (dataclass doesn't validate)."""
         config = CompactionConfig(reserved=-100)
         strategy = CompactionStrategy(config)
-        # Negative reserved means compaction triggers LATER (threshold is higher)
-        # 100000 - (-100) = 100100, so 99900 < 100100 → no compaction
-        assert strategy.should_compact(99900, 100000) is False
-        # Need to exceed 100100 to trigger
+        # Negative reserved lifts the reserved guard to 100100, but the
+        # threshold guard still binds at 0.8 * 100000 = 80000
+        assert strategy.should_compact(80000, 100000) is False
+        assert strategy.should_compact(80001, 100000) is True
         assert strategy.should_compact(100101, 100000) is True
 
     def test_very_large_reserved(self):

@@ -74,7 +74,8 @@ class TestConversationGrowthToCompaction:
         """Verify that messages accumulate and eventually exceed the compaction threshold."""
         strategy = CompactionStrategy(CompactionConfig(reserved=20000))
         model_limit = 128000  # Typical gpt-4o context limit
-        threshold = model_limit - 20000  # 108000
+        # Dual guard: min(int(limit * 0.8), limit - reserved)
+        threshold = min(int(model_limit * 0.8), model_limit - 20000)  # 102400
 
         # Simulate accumulating messages with larger content to reach threshold faster
         messages = [_make_system_message()]
@@ -278,20 +279,29 @@ class TestCompactionStrategyThresholds:
         strategy = CompactionStrategy(config)
 
         model_limit = 128000
+        # Trigger = min(int(128000*0.8), 128000-20000) = min(102400, 108000) = 102400
         # Exactly at boundary: should NOT compact
-        assert strategy.should_compact(108000, model_limit) is False
+        assert strategy.should_compact(102400, model_limit) is False
         # One token over: should compact
-        assert strategy.should_compact(108001, model_limit) is True
+        assert strategy.should_compact(102401, model_limit) is True
+
+        # With the threshold guard disabled (compact_threshold=1.0), the
+        # reserved guard binds at model_limit - reserved = 108000
+        reserved_only = CompactionStrategy(CompactionConfig(reserved=20000, compact_threshold=1.0))
+        assert reserved_only.should_compact(108000, model_limit) is False
+        assert reserved_only.should_compact(108001, model_limit) is True
 
     def test_different_reserved_values(self):
         """Different reserved values should shift the threshold."""
         model_limit = 128000
 
+        # reserved=10000: min(102400, 118000) = 102400 — threshold guard binds
         config_small = CompactionConfig(reserved=10000)
         strategy_small = CompactionStrategy(config_small)
-        assert strategy_small.should_compact(118001, model_limit) is True
-        assert strategy_small.should_compact(118000, model_limit) is False
+        assert strategy_small.should_compact(102401, model_limit) is True
+        assert strategy_small.should_compact(102400, model_limit) is False
 
+        # reserved=40000: min(102400, 88000) = 88000 — reserved guard binds
         config_large = CompactionConfig(reserved=40000)
         strategy_large = CompactionStrategy(config_large)
         assert strategy_large.should_compact(88001, model_limit) is True
@@ -440,7 +450,9 @@ class TestCompactionEdgeCases:
         assert result[0].role == "system"
 
     def test_tool_call_messages_preserved_in_fallback(self):
-        """Fallback truncation should handle tool call messages."""
+        """Compaction never orphans tool messages from their tool_calls partner."""
+        from berserker.agent.manager import _msg_token_count
+
         manager = AgentManager()
         messages = [
             _make_system_message(),
@@ -453,9 +465,16 @@ class TestCompactionEdgeCases:
             ChatMessage(role="assistant", content="Editing..."),
         ]
         result = manager.compact(messages, max_tokens=10)
-        # Should have system + summary + last 2 messages (fallback)
         assert result[0].role == "system"
-        assert len(result) >= 3
+        # Tool messages must never be orphaned: each one follows an assistant
+        # message carrying tool_calls (turns are kept/shed as a whole).
+        for i, m in enumerate(result):
+            if m.role == "tool":
+                assert i > 0
+                prev = result[i - 1]
+                assert prev.role == "assistant" and prev.tool_calls
+        # Non-system content must fit the budget (system prompt is always kept)
+        assert sum(_msg_token_count(m) for m in result if m.role != "system") <= 10
 
 
 # ---------------------------------------------------------------------------

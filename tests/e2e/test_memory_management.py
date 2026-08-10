@@ -308,23 +308,25 @@ class TestCompactionStrategy:
 
     def test_strategy_respects_config(self):
         """CompactionStrategy should respect custom configuration."""
-        # Default config: reserved=20000
+        # Default config: reserved=20000, compact_threshold=0.8
+        # Trigger = min(0.8*128000, 128000-20000) = min(102400, 108000) = 102400
         default_strategy = CompactionStrategy(default_config())
-        # With default, should_compact(100000, 128000) -> 100000 > 108000? False
+        # should_compact(100000, 128000) -> 100000 > 102400? False
         assert not default_strategy.should_compact(100000, 128000)
-        # 110000 > 108000? True
+        # 110000 > 102400? True
         assert default_strategy.should_compact(110000, 128000)
 
-        # Custom config: reserved=10000
-        custom_config = CompactionConfig(reserved=10000)
+        # Custom config: reserved=10000, compact_threshold=1.0 (threshold guard off)
+        # Trigger = min(128000, 118000) = 118000
+        custom_config = CompactionConfig(reserved=10000, compact_threshold=1.0)
         custom_strategy = CompactionStrategy(custom_config)
         # With custom, should_compact(100000, 128000) -> 100000 > 118000? False
         assert not custom_strategy.should_compact(100000, 128000)
         # 120000 > 118000? True
         assert custom_strategy.should_compact(120000, 128000)
 
-        # Custom config triggers at lower threshold than default
-        # Default triggers at 108000, custom at 118000
+        # Custom config triggers at a higher threshold than default
+        # Default triggers at 102400, custom at 118000
         assert default_strategy.should_compact(115000, 128000)
         assert not custom_strategy.should_compact(115000, 128000)
 

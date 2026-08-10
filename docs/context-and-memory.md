@@ -218,7 +218,8 @@ The decision helper is `CompactionStrategy` (see section 8):
 ```python
 strategy = CompactionStrategy(compaction_config)
 if strategy.should_compact(total_tokens, context_limit):
-    # total_tokens > context_limit - strategy.config.reserved
+    # total_tokens > min(context_limit * compact_threshold,
+    #                     context_limit - strategy.config.reserved)
 ```
 
 `get_compact_threshold(model_limit)` returns `int(model_limit *
@@ -667,6 +668,7 @@ class CompactionConfig:
     prune_protect: int = 40000 # protect the last N tokens of tool output
     prune_minimum: int = 20000 # minimum prunable tokens before pruning runs
     compact_threshold: float = 0.8  # fraction of the context window
+    keep_last_turns: int = 2     # recent turns kept verbatim during compaction
 ```
 
 Two corrections vs. the old doc: `prune_minimum` defaults to **20000** (not
@@ -679,7 +681,7 @@ Helpers:
 default_config()                     # -> CompactionConfig()
 load_compaction_config(config_dict)  # reads config_dict.get("compaction")
 CompactionStrategy(config=None)
-strategy.should_compact(tokens, model_limit)   # tokens > model_limit - reserved
+strategy.should_compact(tokens, model_limit)   # tokens > min(limit*compact_threshold, limit-reserved)
 strategy.should_prune(total_prunable_tokens)   # prune AND total > prune_minimum
 strategy.get_compact_threshold(model_limit)    # int(model_limit * compact_threshold)
 strategy.get_prune_protect()                   # config.prune_protect
@@ -715,27 +717,36 @@ def prune_messages(self, messages, session_id=None):
 ### 8.3 AI compaction (`AgentManager.compact`)
 
 ```python
-def compact(self, messages, max_tokens=4096):
-    # type: (List[ChatMessage], int) -> List[ChatMessage]
+def compact(self, messages, max_tokens=4096, abort_event=None):
+    # type: (List[ChatMessage], int, Any) -> List[ChatMessage]
 ```
 
-1. Estimate total tokens: `sum(count_tokens(m.content))`. If below
-   `max_tokens`, return the messages unchanged.
+Hybrid strategy: summarize the older turns, keep the recent ones verbatim.
+
+1. Estimate total tokens with `_msg_token_count` (content + tool-call
+   arguments + `reasoning_content`). If below `max_tokens`, return the
+   messages unchanged.
 2. Split system messages from the rest. If there are 2 or fewer non-system
    messages, compaction would not help, so return unchanged.
-3. Otherwise call the hidden `compaction` agent with the non-system messages
-   plus a user prompt asking for a **five-section structured summary**
-   (Goal, Instructions, Discoveries, Accomplished, Relevant files /
-   directories). The call runs with an empty `ToolRegistry()` (read-only use)
-   and session id `"compaction-internal"`.
-4. On success, build `ChatMessage(role="assistant", content=summary.strip())`
-   and return `system_messages + [summary_msg]`. The summary uses the
-   **assistant role** (not system) to avoid multiple-system-message problems
-   with OpenAI.
-5. Fallback when the AI call fails or returns empty: keep the system messages,
-   insert an assistant message `"[Previous conversation summarized: {n}
-   messages compressed to save tokens]"`, and keep the last 2 non-system
-   messages.
+3. Split the non-system messages into turns at each user message
+   (`_split_turns`; assistant(tool_calls)/tool groups are never split, so a
+   kept tail is always API-safe). The newest `keep_last_turns` turns are kept
+   verbatim as the tail, capped at 30% of the budget.
+4. The older turns are sent to the hidden `compaction` agent with a user
+   prompt asking for a **five-section structured summary** (Goal,
+   Instructions, Discoveries, Accomplished, Relevant files / directories).
+   The call runs with an empty `ToolRegistry()` (read-only use), session id
+   `"compaction-internal"`, and the caller's `abort_event` (so a user abort
+   also cancels the summarization pass).
+5. The result is `system_messages + [summary_msg] + tail`. The summary uses
+   the **assistant role** (not system) to avoid multiple-system-message
+   problems with OpenAI.
+6. Fallback when the AI call fails or returns empty: an assistant message
+   `"[Previous conversation summarized: {n} messages compressed to save
+   tokens]"` stands in for the summary.
+7. Hard guarantee: if the assembled result still exceeds `max_tokens`, tail
+   turns are shed (oldest first) until it fits; if even the summary alone is
+   over budget, its text is truncated.
 
 ### 8.4 The unified trigger (`AgentExecutor._execute_compaction`)
 
@@ -759,18 +770,25 @@ The method's order of operations:
 2. Publish `COMPACTION_STARTED` with the reason.
 3. Count tokens before (`TokenCounter.count_messages`).
 4. Run `prune_messages(...)` then `compact(..., max_tokens=context_limit -
-   strategy.config.reserved)`.
+   strategy.config.reserved, abort_event=abort_event)`.
 5. Count tokens after and compute `tokens_freed`.
 6. For pre-execution compaction, if the result still exceeds the target, run
    `_fallback_truncate_messages`: binary-search how many oldest non-system
    messages to drop (keeping at least the last 5 when possible), always
-   preserving the system prompt.
+   preserving the system prompt. The cut point is then aligned to a tool-group
+   boundary: a kept suffix starting with tool messages would orphan them, so
+   those are dropped too.
 7. If a tracker was provided and both hashes exist, diff the two snapshots,
    save the post snapshot with the diff stats, and publish `SNAPSHOT_CREATED`.
 8. Publish `COMPACTION_COMPLETED` with `tokens_before`, `tokens_after`,
    `tokens_freed`.
-9. Persist the compacted messages via `SessionManager.replace_messages` (the
-   session's messages are replaced; no part-table sync happens).
+9. Archive the session's current messages via
+   `SessionManager.archive_messages(session_id, reason=...)` into the
+   `message_archive` table (recoverable pre-compaction history; failure only
+   logs a warning), then persist the compacted messages via
+   `SessionManager.replace_messages` (no part-table sync happens).
+   `list_archives(session_id)` / `get_archive(archive_id)` read them back.
+   The manual `/compact` path archives with `reason="manual-compact"`.
 10. Persist the agent config via `save_agent_config`.
 
 The auto-trigger checks differ slightly by location:
@@ -842,7 +860,8 @@ Read from the `"compaction"` key of the config dict by
     "reserved": 20000,
     "prune_protect": 40000,
     "prune_minimum": 20000,
-    "compact_threshold": 0.8
+    "compact_threshold": 0.8,
+    "keep_last_turns": 2
   }
 }
 ```
@@ -855,6 +874,7 @@ Read from the `"compaction"` key of the config dict by
 | `prune_protect` | int | `40000` | Protect the newest N tokens of tool output |
 | `prune_minimum` | int | `20000` | Minimum prunable tokens before pruning activates |
 | `compact_threshold` | float | `0.8` | Fraction of the context window used by `get_compact_threshold` |
+| `keep_last_turns` | int | `2` | Recent turns kept verbatim during compaction (older turns are summarized) |
 
 Unknown keys are silently ignored.
 

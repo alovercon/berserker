@@ -1,7 +1,7 @@
 """
 berserker.storage.schema — SQLite table creation SQL.
 
-Contains the DDL statements for all 11 tables and their indexes.
+Contains the DDL statements for all 15 tables and their indexes.
 Mirrors the reference Drizzle schema (session.sql.ts, account.sql.ts, etc.)
 translated to raw SQLite DDL.
 """
@@ -179,6 +179,20 @@ CREATE TABLE IF NOT EXISTS session_agent_config (
 );
 """
 
+# Compaction archives: pre-compaction message history, one row per compaction.
+# replace_messages() deletes the originals — this is the recoverable copy.
+CREATE_MESSAGE_ARCHIVE = """\
+CREATE TABLE IF NOT EXISTS message_archive (
+    id            TEXT PRIMARY KEY,
+    session_id    TEXT NOT NULL,
+    workspace_id  TEXT,
+    reason        TEXT,
+    message_count INTEGER,
+    data          TEXT,       -- JSON array of the pre-compaction message dicts
+    created_at    INTEGER
+);
+"""
+
 # ---------------------------------------------------------------------------
 # Index DDL
 # ---------------------------------------------------------------------------
@@ -194,6 +208,7 @@ CREATE INDEX IF NOT EXISTS pruning_session_idx ON pruning_state(session_id);
 CREATE INDEX IF NOT EXISTS pruning_message_idx ON pruning_state(message_id);
 CREATE INDEX IF NOT EXISTS idx_session_workspace ON session(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_session_parent ON session(parent_id);
+CREATE INDEX IF NOT EXISTS idx_archive_session ON message_archive(session_id, created_at);
 """
 
 # ---------------------------------------------------------------------------
@@ -215,6 +230,7 @@ ALL_TABLES = [
     CREATE_SESSION_SNAPSHOTS,
     CREATE_PRUNING_STATE,
     CREATE_SESSION_AGENT_CONFIG,
+    CREATE_MESSAGE_ARCHIVE,
 ]
 
 ALL_INDEXES = [CREATE_INDEXES]
