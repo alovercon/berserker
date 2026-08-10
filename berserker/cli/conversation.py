@@ -1202,6 +1202,8 @@ def _cmd_compact(session_id):
 
                     tool_call_id=msg.get("tool_call_id") or msg.get("tool_result_for"),
 
+                    reasoning_content=msg.get("reasoning_content") if msg.get("role") == "assistant" else None,
+
                 )
 
             )
@@ -1249,6 +1251,8 @@ def _cmd_compact(session_id):
                     "tool_calls": msg.tool_calls,
 
                     "tool_result_for": msg.tool_call_id,
+
+                    "reasoning_content": getattr(msg, "reasoning_content", None),
 
                 }
 
