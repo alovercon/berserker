@@ -40,7 +40,7 @@ coordinates state transitions and aborts.
   ┌────────────────────────────────────────────────────────────────────┐
   │ SessionManager (session/manager.py) — SQLite CRUD + event bus      │
   │ SessionContext (session/context.py) — state machine, abort, cache  │
-  │ Storage (storage/) — Database, 14-table schema, migrations         │
+  │ Storage (storage/) — Database, 15-table schema, migrations         │
   └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -593,9 +593,9 @@ dict-like row access:
   `db_context()` yields a fresh instance and closes it on exit.
 - Connections are tracked and closed at interpreter exit.
 
-### 7.2 The 14 tables (`storage/schema.py`)
+### 7.2 The 15 tables (`storage/schema.py`)
 
-The schema defines exactly these 14 tables (plus `command_history`, created by
+The schema defines exactly these 15 tables (plus `command_history`, created by
 `session/history.py` at import time):
 
 | Table | Purpose |
@@ -614,6 +614,7 @@ The schema defines exactly these 14 tables (plus `command_history`, created by
 | `session_snapshots` | Git snapshot statistics per session |
 | `pruning_state` | Pruning records per session |
 | `session_agent_config` | Per-session agent/model override |
+| `message_archive` | Recoverable pre-compaction history (archived before every replace; see §8.4) |
 
 Tables that older docs claimed existed (for example `session_tags`, `tag`,
 `agent_run`, `tool_call`, `file_change`, `skill_usage`, `compaction_record`,
@@ -929,7 +930,7 @@ The Qwen vocab file also lives under the user cache by default:
 | `berserker/agent/executor.py` | `AgentExecutor`: tool loop, context_info, `_execute_compaction`, fallback truncation |
 | `berserker/provider/registry.py` | `get_model_metadata` / `register_model_metadata` (context_window, compaction_buffer) |
 | `berserker/provider/base.py` | `ChatMessage`, `ChatResponse`, finish-reason constants |
-| `berserker/storage/schema.py` | DDL for the 14 tables plus indexes |
+| `berserker/storage/schema.py` | DDL for the 15 tables plus indexes |
 | `berserker/storage/db.py` | `Database`, `get_db`, PRAGMAs, lock retry |
 | `berserker/storage/crud.py` | `insert`, `insert_many`, `update`, `delete`, `upsert` helpers |
 | `berserker/storage/migrations.py` | Migration runner and status |
