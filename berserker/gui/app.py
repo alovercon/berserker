@@ -672,6 +672,31 @@ def _on_send_message(text):
 
             )
 
+        elif result and result.startswith("__SKILL__:"):
+
+            # "<skill>" command → inject the loaded skill's content as a
+            # user instruction so the agent knows the skill's workflow.
+            skill_content = result[len("__SKILL__:") :]
+            _controller.display_user_message("/{}".format("skill"))
+            skill_msg = (
+                "A skill has been loaded. Follow its instructions:\n\n"
+                "{}".format(skill_content)
+            )
+            messages = [ChatMessage(role="user", content=skill_msg)]
+            _controller.execute_agent(
+
+                agent_manager,
+
+                _controller.current_agent,
+
+                messages,
+
+                _controller.session_id,
+
+                tool_registry,
+
+            )
+
         elif result:
 
             # Display command result (e.g., /help, /agent list)

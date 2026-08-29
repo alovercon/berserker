@@ -244,7 +244,16 @@ class SlashCommandHandler:
 
                     return True, "__TEMPLATE__:" + resolved
 
-
+        # --- Skill names are recognized as loadable skills, not unknown cmds ---
+        # A bare "/<skill-name>" (e.g. "/skill-creator") loads the installed
+        # skill and injects its content into the conversation as an instruction
+        # for the agent. This mirrors the CLI's `skill` tool behavior and makes
+        # the autocomplete's skill candidates actually executable.
+        safe = command.lstrip("/")
+        if safe:
+            skill_result = self._try_load_skill(safe)
+            if skill_result is not None:
+                return True, "__SKILL__:" + skill_result
 
         return True, "Unknown command: {}. Type /help for available commands.".format(
 
@@ -263,6 +272,39 @@ class SlashCommandHandler:
 
 
         return command_registry.get_help_text()
+
+
+
+    def _try_load_skill(self, skill_name):
+        # type: (str) -> Optional[str]
+        """Look up an installed skill by name and return its markdown content.
+
+        Used to turn a bare ``/<skill-name>`` input (e.g. ``/skill-creator``)
+        into a loadable skill instruction. Returns None when no skill matches
+        (so the caller can fall through to the "unknown command" message).
+
+        Args:
+            skill_name: The skill name (without leading slash).
+
+        Returns:
+            The skill's SKILL.md content (frontmatter stripped), or None if
+            the skill is not installed.
+        """
+        from berserker.tool.skill import _find_skill, _load_skill
+
+        try:
+            path = _find_skill(skill_name)
+        except Exception as e:
+            logger.debug("Skill lookup failed for %s: %s", skill_name, e)
+            return None
+        if path is None:
+            return None
+        try:
+            content = _load_skill(path)
+        except Exception as e:
+            logger.debug("Skill load failed for %s: %s", skill_name, e)
+            return None
+        return content
 
 
 
@@ -463,8 +505,6 @@ class SlashCommandHandler:
         # type: () -> str
 
         from berserker.tool.skill import _list_available_skills
-
-
 
         skills = _list_available_skills()
 

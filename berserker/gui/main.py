@@ -56,6 +56,8 @@ from berserker.gui.chat_listbox import ChatListBox, ChatMessageData
 
 from berserker.gui.agent_status_panel import AgentStatusPanel
 
+from berserker.gui.autocomplete import Suggestion, get_candidates, get_query_from_text
+
 
 
 # ---------------------------------------------------------------------------
@@ -1572,6 +1574,100 @@ class ModelAgentBar(wx.Panel):
 
 
 
+class _CompleterPopup(wx.PopupTransientWindow):
+
+    """Popup dropdown window listing autocomplete suggestions.
+
+    A wx.PopupTransientWindow that hosts a wx.ListBox. Selecting an item
+    with the mouse or the keyboard (via the parent InputPanel) fills in the
+    typed slash command. PopupTransientWindow automatically handles
+    outside-click and focus-loss dismissal, so InputPanel stays focused on
+    input handling.
+
+    The popup applies its sizer directly to itself (no intermediate panel):
+    calling ``self.SetSizer(...)`` makes the ListBox fill the popup's client
+    area, so the dropdown renders its items instead of collapsing to a
+    degenerate region. ``sizer.Fit(self)`` sizes the popup from its content.
+
+    Python 3.8.10 compatible.
+    """
+
+    def __init__(self, parent, items):
+        # type: (wx.Window, List[Suggestion]) -> None
+        super(_CompleterPopup, self).__init__(parent, flags=wx.BORDER_SIMPLE)
+        self._items = items  # type: List[Suggestion]
+
+        self.SetBackgroundColour(wx.Colour(250, 250, 250))
+        self.listbox = wx.ListBox(
+            self,
+            style=wx.LB_SINGLE | wx.BORDER_NONE,
+        )
+        self.listbox.SetBackgroundColour(wx.Colour(250, 250, 250))
+        for s in items:
+            # Distinguish commands from skills so the user knows a bare
+            # "/<name>" loads a skill vs. runs a registered command.
+            kind_tag = "[skill]" if getattr(s, "kind", "") == "skill" else "[cmd]"
+            row = "{}  {}".format(kind_tag, s.display)
+            if s.description:
+                row += "  —  {}".format(s.description[:60])
+            self.listbox.Append(row)
+        self.listbox.SetSelection(0)
+
+        # Let the ListBox stretch to fill the popup, and size the popup from
+        # its content. A sizer attached directly to the popup (no intermediate
+        # panel) is the reliable way to make the child fill the client area.
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.listbox, 1, wx.EXPAND)
+        width = 420
+        height = min(32 * len(items) + 16, 220)
+        self.SetSize((width, height))
+        self.SetSizerAndFit(sizer)
+
+        # Click an item to complete the command.
+        self.listbox.Bind(wx.EVT_LISTBOX_DCLICK, self._on_dclick)
+        self.listbox.Bind(wx.EVT_LEFT_UP, self._on_click)
+
+    def select_index(self, index):
+        # type: (int) -> None
+        """Highlight the item at the given index (clamped to range)."""
+        if not self._items:
+            return
+        if index < 0:
+            index = 0
+        if index >= len(self._items):
+            index = len(self._items) - 1
+        self.listbox.SetSelection(index)
+
+    def get_selected(self):
+        # type: () -> Optional[Suggestion]
+        """Return the currently selected Suggestion, or None."""
+        idx = self.listbox.GetSelection()
+        if idx < 0 or idx >= len(self._items):
+            return None
+        return self._items[idx]
+
+    def _on_dclick(self, event):
+        # type: (wx.CommandEvent) -> None
+        """Double-click: complete using the clicked item, then close."""
+        self._complete_clicked()
+        event.Skip()
+
+    def _on_click(self, event):
+        # type: (wx.MouseEvent) -> None
+        """Single click: complete using the clicked item, then close."""
+        self._complete_clicked()
+
+    def _complete_clicked(self):
+        # type: () -> None
+        selection = self.get_selected()
+        if selection is None:
+            return
+        # Notify parent to apply the completion
+        parent = self.GetParent()
+        if parent is not None and hasattr(parent, "_ac_items"):
+            parent._apply_suggestion()
+
+
 class InputPanel(wx.Panel):
 
     """Bottom panel with multi-line input and send/stop buttons."""
@@ -1742,6 +1838,135 @@ class InputPanel(wx.Panel):
 
         self.Bind(wx.EVT_CHAR_HOOK, self._on_global_key)
 
+        # --- Slash-command / skill autocomplete ---------------------------------
+        # Popup dropdown anchored below the input control; shown when the
+        # user is typing a slash command (the current word starts with '/').
+        self._ac_popup = None  # type: Optional[_CompleterPopup]
+        self._ac_items = []  # type: List[Any]
+        self._ac_index = -1  # type: int
+        self._suppress_autocomplete = False  # type: bool
+
+        # Rebuild candidates on every text change (cheap: registry + skill dirs)
+        self.input_ctrl.Bind(wx.EVT_TEXT, self._on_text_changed)
+
+        # NOTE: We deliberately do NOT bind EVT_SET_FOCUS on the input to
+        # close the popup. PopupTransientWindow already dismisses itself on
+        # outside click / focus loss, and an EVT_SET_FOCUS handler here would
+        # fight with the popup's own focus management and steal the caret
+        # (the "no cursor in the input box" symptom).
+
+    def _close_popup(self):
+        # type: () -> None
+        """Hide the autocomplete popup if visible."""
+        if self._ac_popup is not None:
+            self._ac_popup.Destroy()
+            self._ac_popup = None
+        self._ac_items = []
+        self._ac_index = -1
+
+    def _show_popup(self, items, anchor_x, anchor_y):
+        # type: (List[Any], int, int) -> None
+        """Create (or recreate) the popup with the given suggestion items.
+
+        Args:
+            items: List of Suggestion objects to display.
+            anchor_x: Screen-space X of the popup's top-left corner.
+            anchor_y: Screen-space Y of the popup's top-left corner.
+        """
+        self._close_popup()
+        if not items:
+            return
+        self._ac_items = items
+        self._ac_index = -1 if len(items) > 0 else 0
+        popup = _CompleterPopup(self, items)
+        popup.SetPosition((anchor_x, anchor_y))
+        popup.Show()
+        self._ac_popup = popup
+
+        # Keep typing focus on the input control so the caret stays visible
+        # and further characters keep updating the popup live.
+        if self.input_ctrl is not None:
+            self.input_ctrl.SetFocus()
+
+    def _update_autocomplete(self):
+        # type: () -> None
+        """Refresh the autocomplete popup based on the current input text."""
+        text = self.input_ctrl.GetValue()
+        pos = self.input_ctrl.GetInsertionPoint()
+        query = get_query_from_text(text, pos)
+
+        # Not inside a slash word -> hide.
+        # Inside a slash word: query may be "" (just typed "/"), in which
+        # case show all candidates.
+        if query is None:
+            self._close_popup()
+            return
+        candidates = get_candidates(query)
+        if not candidates:
+            self._close_popup()
+            return
+        # Compute anchor: bottom-left of the input control, in screen coords.
+        anchor_x, anchor_y = self.input_ctrl.ClientToScreen((0, 0))
+        anchor_y += self.input_ctrl.GetSize().GetHeight()
+        self._show_popup(candidates, anchor_x, anchor_y)
+
+    def _apply_suggestion(self):
+        # type: () -> None
+        """Replace the in-progress slash word with the selected suggestion."""
+        if self._ac_index < 0 or self._ac_index >= len(self._ac_items):
+            return
+        suggestion = self._ac_items[self._ac_index]
+        text = self.input_ctrl.GetValue()
+        pos = self.input_ctrl.GetInsertionPoint()
+
+        # Replace the whole slash token (from its '/' up to the token end)
+        # regardless of where the cursor sits inside it.
+        token_start = pos
+        while token_start > 0 and text[token_start - 1] not in (" ", "\n", "\t"):
+            token_start -= 1
+        token_end = pos
+        while token_end < len(text) and text[token_end] not in (" ", "\n", "\t"):
+            token_end += 1
+
+        if token_start >= len(text) or not text[token_start:token_start + 1] == "/":
+            # Not a slash token — nothing to complete.
+            self._close_popup()
+            return
+        new_text = text[:token_start] + suggestion.label + " " + text[token_end:]
+        self.input_ctrl.SetValue(new_text)
+        self.input_ctrl.SetInsertionPoint(token_start + len(suggestion.label) + 1)
+        self._close_popup()
+
+    def _on_text_changed(self, event):
+        # type: (wx.CommandEvent) -> None
+        """Rebuild autocomplete candidates whenever the text changes."""
+        if not self._suppress_autocomplete:
+            self._update_autocomplete()
+        event.Skip()
+
+    def _popup_select_next(self):
+        # type: () -> None
+        """Move the popup selection down (wrap around)."""
+        if not self._ac_items:
+            return
+        self._ac_index = (self._ac_index + 1) % len(self._ac_items)
+        if self._ac_popup is not None:
+            self._ac_popup.select_index(self._ac_index)
+
+    def _popup_select_prev(self):
+        # type: () -> None
+        """Move the popup selection up (wrap around)."""
+        if not self._ac_items:
+            return
+        self._ac_index = (self._ac_index - 1) % len(self._ac_items)
+        if self._ac_popup is not None:
+            self._ac_popup.select_index(self._ac_index)
+
+    def _popup_is_open(self):
+        # type: () -> bool
+        """Return True when the autocomplete popup is currently visible."""
+        return self._ac_popup is not None and self._ac_popup.IsShown()
+
 
 
     def _add_rich_tooltip(self, control, title, message):
@@ -1828,6 +2053,26 @@ class InputPanel(wx.Panel):
 
 
 
+        # Autocomplete popup key routing (highest priority while open)
+        if self._popup_is_open():
+            if keycode == wx.WXK_ESCAPE:
+                self._close_popup()
+                return  # Consume
+            elif keycode == wx.WXK_DOWN:
+                self._popup_select_next()
+                return  # Consume
+            elif keycode == wx.WXK_UP:
+                self._popup_select_prev()
+                return  # Consume
+            elif keycode == wx.WXK_TAB:
+                self._apply_suggestion()
+                return  # Consume
+            elif keycode == wx.WXK_RETURN and not event.ShiftDown():
+                # Enter while popup open: complete the selected suggestion,
+                # do NOT send the message.
+                self._apply_suggestion()
+                return  # Consume
+
         if keycode == wx.WXK_RETURN:
 
             if event.ShiftDown():
@@ -1894,7 +2139,10 @@ class InputPanel(wx.Panel):
 
             return  # Already at oldest
 
+        self._suppress_autocomplete = True
         self.input_ctrl.SetValue(self._history[self._history_idx])
+        self._suppress_autocomplete = False
+        self._close_popup()
 
         self.input_ctrl.SetInsertionPointEnd()
 
@@ -1918,11 +2166,14 @@ class InputPanel(wx.Panel):
 
             self._history_idx = -1
 
+            self._suppress_autocomplete = True
             self.input_ctrl.SetValue(self._saved_text)
-
+            self._suppress_autocomplete = False
         else:
-
+            self._suppress_autocomplete = True
             self.input_ctrl.SetValue(self._history[self._history_idx])
+            self._suppress_autocomplete = False
+        self._close_popup()
 
         self.input_ctrl.SetInsertionPointEnd()
 
@@ -1943,6 +2194,9 @@ class InputPanel(wx.Panel):
         # type: () -> None
 
         """Send the current input."""
+
+        # Close any open autocomplete popup before sending
+        self._close_popup()
 
         text = self.input_ctrl.GetValue().strip()
 
