@@ -85,6 +85,8 @@ a = Analysis(
         "berserker.gui.md_to_plain",
         "berserker.gui.markdown_renderer",
         "berserker.gui.agent_status_panel",
+        "berserker.gui.autocomplete",
+        "berserker.gui.theme",
         "berserker.gui_entry",
         # Session submodules
         "berserker.session.snapshot",
