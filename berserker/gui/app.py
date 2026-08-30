@@ -596,6 +596,13 @@ def _on_send_message(text):
 
     is_command, result = _controller.process_input(text)
 
+    # Passthrough case: a leading "/<name>" that is NOT a registered command
+    # (e.g. "/skill-creator <user message>"). process() returned
+    # (False, stripped_text) — use the de-slashed text as the real user
+    # message so the LLM decides whether to invoke the matching SkillAsTool.
+    if not is_command and result:
+        text = result
+
     if is_command:
 
         # Handle special __INIT__ return (triggers AGENTS.md generation)
@@ -658,31 +665,6 @@ def _on_send_message(text):
 
             messages = [ChatMessage(role="user", content=template_content)]
 
-            _controller.execute_agent(
-
-                agent_manager,
-
-                _controller.current_agent,
-
-                messages,
-
-                _controller.session_id,
-
-                tool_registry,
-
-            )
-
-        elif result and result.startswith("__SKILL__:"):
-
-            # "<skill>" command → inject the loaded skill's content as a
-            # user instruction so the agent knows the skill's workflow.
-            skill_content = result[len("__SKILL__:") :]
-            _controller.display_user_message("/{}".format("skill"))
-            skill_msg = (
-                "A skill has been loaded. Follow its instructions:\n\n"
-                "{}".format(skill_content)
-            )
-            messages = [ChatMessage(role="user", content=skill_msg)]
             _controller.execute_agent(
 
                 agent_manager,

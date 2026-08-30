@@ -45,6 +45,47 @@ logger = logging.getLogger(__name__)
 
 
 
+def _strip_leading_slash(text):
+    # type: (str) -> str
+    """Return text with a single leading '/' removed, if present.
+
+    Used to turn a bare "/<skill-name> [user message]" input into a plain
+    message ("<skill-name> [user message]") that is passed through to the
+    LLM. The LLM then decides whether to invoke the matching SkillAsTool.
+
+    Args:
+        text: The raw user input.
+
+    Returns:
+        text with the leading '/' stripped (unchanged if no leading '/').
+    """
+    if text.startswith("/"):
+        return text[1:]
+    return text
+
+
+def _is_installed_skill(name):
+    # type: (str) -> bool
+    """Return True if *name* is an installed skill.
+
+    Guards the passthrough behavior so only known skill names (e.g.
+    "/skill-creator") are stripped and forwarded to the LLM; genuine typos
+    like "/hep" still produce an "Unknown command" error.
+
+    Args:
+        name: The candidate skill name (without leading slash).
+
+    Returns:
+        True if a skill with this name is installed.
+    """
+    try:
+        from berserker.tool.skill import _find_skill
+        return _find_skill(name) is not None
+    except Exception as e:
+        logger.debug("Skill lookup failed for %s: %s", name, e)
+        return False
+
+
 
 # ---------------------------------------------------------------------------
 
@@ -244,16 +285,18 @@ class SlashCommandHandler:
 
                     return True, "__TEMPLATE__:" + resolved
 
-        # --- Skill names are recognized as loadable skills, not unknown cmds ---
-        # A bare "/<skill-name>" (e.g. "/skill-creator") loads the installed
-        # skill and injects its content into the conversation as an instruction
-        # for the agent. This mirrors the CLI's `skill` tool behavior and makes
-        # the autocomplete's skill candidates actually executable.
-        safe = command.lstrip("/")
-        if safe:
-            skill_result = self._try_load_skill(safe)
-            if skill_result is not None:
-                return True, "__SKILL__:" + skill_result
+        # --- Real commands only reach here. A leading "/" that does NOT
+        # match a registered command may be a skill marker followed by a user
+        # message (e.g. "/skill-creator build me a skill"). Only when that
+        # token matches an installed skill do we pass it through as a plain
+        # message (with the leading "/" stripped), so the LLM decides whether
+        # to invoke the matching SkillAsTool. Unknown /-commands still error.
+        stripped = _strip_leading_slash(text)
+        if command and stripped != command:
+            # Verify the first token is a known skill name, so we don't
+            # silently pass through typos like "/hep" as ordinary text.
+            if _is_installed_skill(command.lstrip("/")):
+                return False, stripped
 
         return True, "Unknown command: {}. Type /help for available commands.".format(
 
@@ -272,39 +315,6 @@ class SlashCommandHandler:
 
 
         return command_registry.get_help_text()
-
-
-
-    def _try_load_skill(self, skill_name):
-        # type: (str) -> Optional[str]
-        """Look up an installed skill by name and return its markdown content.
-
-        Used to turn a bare ``/<skill-name>`` input (e.g. ``/skill-creator``)
-        into a loadable skill instruction. Returns None when no skill matches
-        (so the caller can fall through to the "unknown command" message).
-
-        Args:
-            skill_name: The skill name (without leading slash).
-
-        Returns:
-            The skill's SKILL.md content (frontmatter stripped), or None if
-            the skill is not installed.
-        """
-        from berserker.tool.skill import _find_skill, _load_skill
-
-        try:
-            path = _find_skill(skill_name)
-        except Exception as e:
-            logger.debug("Skill lookup failed for %s: %s", skill_name, e)
-            return None
-        if path is None:
-            return None
-        try:
-            content = _load_skill(path)
-        except Exception as e:
-            logger.debug("Skill load failed for %s: %s", skill_name, e)
-            return None
-        return content
 
 
 

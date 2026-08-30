@@ -28,11 +28,19 @@ def handler():
 
 
 class TestSkillCommandRecognition(object):
-    def test_skill_command_recognized(self, handler):
+    def test_skill_command_passthrough(self, handler):
+        # A bare "/<skill-name>" is passed through as a plain message (no
+        # slash), leaving the tool-call decision to the LLM (SkillAsTool).
         is_cmd, result = handler.process("/skill-creator")
-        assert is_cmd is True
-        assert result.startswith("__SKILL__:")
-        assert len(result) > len("__SKILL__:")
+        assert is_cmd is False
+        assert result == "skill-creator"
+
+    def test_skill_command_with_message_passthrough(self, handler):
+        # "/skill-creator <message>" -> stripped leading slash, keeps the
+        # user message for the LLM to act on.
+        is_cmd, result = handler.process("/skill-creator build me a skill")
+        assert is_cmd is False
+        assert result == "skill-creator build me a skill"
 
     def test_unknown_command_still_unknown(self, handler):
         is_cmd, result = handler.process("/zzz-not-a-real-command")
