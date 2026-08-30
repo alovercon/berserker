@@ -1877,7 +1877,10 @@ class InputPanel(wx.Panel):
         if not items:
             return
         self._ac_items = items
-        self._ac_index = -1 if len(items) > 0 else 0
+        # Default selection is the first item (matches _CompleterPopup's
+        # listbox.SetSelection(0)); a non-negative index lets Enter/Tab
+        # complete the highlighted suggestion even before any arrow key.
+        self._ac_index = 0
         popup = _CompleterPopup(self, items)
         popup.SetPosition((anchor_x, anchor_y))
         popup.Show()

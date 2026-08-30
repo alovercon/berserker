@@ -199,3 +199,30 @@ class TestInputPanelAutocomplete(object):
         finally:
             panel._close_popup()
             frame.Destroy()
+
+    def test_enter_applies_first_item_without_arrow_keys(self, wx_app):
+        """Regression: pressing Enter right after the popup opens (without any
+        Up/Down arrow press) must complete the first highlighted item. Before
+        the fix, _ac_index started at -1 so the guard in _apply_suggestion
+        bailed out and Enter did nothing."""
+        from berserker.command.registry import command_registry
+
+        command_registry.scan(_REPO_ROOT)
+        frame, panel = _make_visible_input_panel(wx_app)
+        try:
+            panel.input_ctrl.SetFocus()
+            panel.input_ctrl.SetValue("/comp")
+            # Ensure the caret is at the end (as it is while the user types).
+            panel.input_ctrl.SetInsertionPoint(len(panel.input_ctrl.GetValue()))
+            panel._update_autocomplete()
+            assert panel._popup_is_open()
+            # The initial selection index must be 0 (not -1).
+            assert panel._ac_index == 0
+            # Simulate the Enter key handler path: apply the suggestion.
+            panel._apply_suggestion()
+            value = panel.input_ctrl.GetValue().strip()
+            assert value == "/compact", "expected /compact, got %r" % value
+            assert panel._popup_is_open() is False
+        finally:
+            panel._close_popup()
+            frame.Destroy()
