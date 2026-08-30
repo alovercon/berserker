@@ -7,6 +7,7 @@ import wx.lib.mixins.listctrl as listmix
 from typing import Dict, List, Optional, Any
 
 from berserker.agent.monitor import agent_monitor, STATUS_IDLE, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED
+from berserker.gui.theme import THEME
 
 
 class AgentStatusPanel(wx.Panel):
@@ -15,7 +16,7 @@ class AgentStatusPanel(wx.Panel):
     def __init__(self, parent):
         super(AgentStatusPanel, self).__init__(parent)
 
-        self.SetBackgroundColour(wx.Colour("#F5F5F5"))
+        self.SetBackgroundColour(THEME["bg_panel"])
 
         main_sizer = wx.BoxSizer(wx.VERTICAL)
 

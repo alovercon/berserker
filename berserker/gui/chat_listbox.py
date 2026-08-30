@@ -36,26 +36,27 @@ logger = logging.getLogger(__name__)
 
 _COLOR_BG_PANEL = wx.Colour(0xF0, 0xF0, 0xF0)
 
-# User message colors
-_COLOR_USER_BUBBLE = wx.Colour(0xD1, 0xF4, 0xD1)       # Light green
+# User message colors — soft blue-green tint that sits harmoniously with the
+# iOS-blue accent (keeps the "sender" cue while staying subtle and light).
+_COLOR_USER_BUBBLE = wx.Colour(0xDE, 0xF0, 0xFF)       # Soft sky blue
 _COLOR_USER_TEXT = wx.Colour(0x1D, 0x1D, 0x1F)
 
 # Assistant message colors
 _COLOR_ASST_BUBBLE = wx.Colour(0xFF, 0xFF, 0xFF)        # White
 _COLOR_ASST_TEXT = wx.Colour(0x1D, 0x1D, 0x1F)
 
-# Tool call colors
-_COLOR_TOOL_BUBBLE = wx.Colour(0xE8, 0xE4, 0xDF)        # Warm light gray (distinct from bg #F0F0F0)
+# Tool call colors — neutral cool gray, distinct from the #F0F0F0 panel bg
+_COLOR_TOOL_BUBBLE = wx.Colour(0xEC, 0xEC, 0xF0)        # Cool light gray
 _COLOR_TOOL_TEXT = wx.Colour(0x6E, 0x6E, 0x73)
 
 # Grouping / meta colors
 _COLOR_TIMESTAMP = wx.Colour(0x8E, 0x8E, 0x93)
 _COLOR_SEARCH_HIGHLIGHT = wx.Colour(0xFF, 0xF3, 0xCD)
-_COLOR_BUBBLE_BORDER = wx.Colour(0xE5, 0xE5, 0xEA)
-_COLOR_LINK = wx.Colour(0x00, 0x7A, 0xFF)
+_COLOR_BUBBLE_BORDER = wx.Colour(0xDF, 0xDF, 0xE6)
+_COLOR_LINK = wx.Colour(0x00, 0x7A, 0xFF)  # matches THEME accent
 
-_PADDING = 8            # General padding
-_BUBBLE_RADIUS = 14      # Corner radius for bubbles
+_PADDING = 10           # General padding (slightly roomier)
+_BUBBLE_RADIUS = 16      # Corner radius for bubbles
 _BUBBLE_MARGIN = 6       # Top/bottom margin between bubbles
 _AVATAR_SIZE = 20        # Avatar circle size
 _GAP_SAME_GROUP = 3      # Gap between grouped messages
@@ -596,13 +597,13 @@ class ChatListBox(wx.VListBox):
         # Draw bubble background
         if msg.type == "user":
             bg = _COLOR_USER_BUBBLE
-            border = wx.Colour(0xBB, 0xDD, 0xBB)
+            border = wx.Colour(0xC3, 0xDD, 0xF1)  # soft blue border matched to bubble
         elif msg.type == "assistant":
             bg = _COLOR_ASST_BUBBLE
             border = _COLOR_BUBBLE_BORDER
         else:
             bg = _COLOR_TOOL_BUBBLE
-            border = wx.Colour(0xD5, 0xD0, 0xCC)
+            border = wx.Colour(0xDD, 0xDD, 0xE4)  # cool gray border matched to bubble
 
         self._draw_bubble(gc, bubble_left, y, bubble_width, bubble_height, bg, border)
 

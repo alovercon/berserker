@@ -58,6 +58,8 @@ from berserker.gui.agent_status_panel import AgentStatusPanel
 
 from berserker.gui.autocomplete import Suggestion, get_candidates, get_query_from_text
 
+from berserker.gui.theme import THEME as _THEME
+
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +78,11 @@ from berserker.gui.autocomplete import Suggestion, get_candidates, get_query_fro
 
 # The main content panel takes the remaining width.
 
-SIDEBAR_RATIO = 0.18        # 18% — left sidebar
+SIDEBAR_RATIO = 0.16        # 16% — left sidebar
 
-AGENT_STATUS_RATIO = 0.30   # 30% — right agent status panel
+AGENT_STATUS_RATIO = 0.26   # 26% — right agent status panel
 
-# Main content: 1 - 0.18 - 0.30 = 52%
+# Main content: 1 - 0.16 - 0.26 = 58%
 
 COLOR_BG = "#F0F0F0"  # Light gray background
 
@@ -92,31 +94,7 @@ FONT_FAMILY = (
 
 
 
-# Theme: modern blue accent palette
-
-_THEME = {
-
-    "accent": wx.Colour(0, 122, 255),       # #007AFF — iOS blue
-
-    "accent_hover": wx.Colour(0, 102, 230), # Darker blue for hover
-
-    "danger": wx.Colour(255, 59, 48),       # #FF3B30 — iOS red
-
-    "disabled": wx.Colour(199, 199, 204),   # #C7C7CC — gray
-
-    "bg_primary": wx.Colour(240, 240, 240), # #F0F0F0 — main bg
-
-    "bg_sidebar": wx.Colour(235, 235, 240), # #EBEBF0 — sidebar bg
-
-    "bg_card": wx.Colour(255, 255, 255),    # #FFFFFF — card/panel bg
-
-    "text_primary": wx.Colour(29, 29, 31),  # #1D1D1F
-
-    "text_secondary": wx.Colour(110, 110, 115),  # #6E6E73
-
-    "separator": wx.Colour(209, 209, 214),  # #D1D1D6
-
-}
+# Theme tokens live in berserker/gui/theme.py (imported above as _THEME).
 
 PADDING = 10
 
@@ -1740,6 +1718,11 @@ class InputPanel(wx.Panel):
 
         )
 
+        # Elevated card background + primary text so the input reads distinctly
+        # from the surrounding panel and stays legible against the theme.
+        self.input_ctrl.SetBackgroundColour(_THEME["bg_card"])
+        self.input_ctrl.SetForegroundColour(_THEME["text_primary"])
+
         self.input_ctrl.SetMinSize((-1, 60))
 
         self.input_ctrl.Bind(wx.EVT_CHAR, self._on_char)
@@ -1766,7 +1749,11 @@ class InputPanel(wx.Panel):
 
         self.send_btn.SetForegroundColour(wx.WHITE)
 
+        self.send_btn.SetMinSize((-1, 30))
+
         self.send_btn.Bind(wx.EVT_BUTTON, self._on_send)
+        self.send_btn.Bind(wx.EVT_ENTER_WINDOW, lambda e: self.send_btn.SetBackgroundColour(_THEME["accent_hover"]))
+        self.send_btn.Bind(wx.EVT_LEAVE_WINDOW, lambda e: self.send_btn.SetBackgroundColour(_THEME["accent"]))
 
         self._add_rich_tooltip(self.send_btn, "发送消息", "Enter 发送，Shift+Enter 换行")
 
@@ -1779,6 +1766,8 @@ class InputPanel(wx.Panel):
         self.stop_btn.SetBackgroundColour(_THEME["disabled"])
 
         self.stop_btn.SetForegroundColour(wx.WHITE)
+
+        self.stop_btn.SetMinSize((-1, 30))
 
         self.stop_btn.Disable()
 

@@ -12,16 +12,19 @@ from typing import Any, Callable, Dict, List, Optional
 
 import wx
 
+from berserker.gui.theme import THEME, theme_hex
 
-# Sidebar-specific color tokens (derived from main app palette)
-COLOR_SIDEBAR_BG = "#EBEBF0"
-COLOR_SIDEBAR_HEADER_BG = "#F0F0F0"
-COLOR_SIDEBAR_TEXT_PRIMARY = "#1D1D1F"  # Primary text color
-COLOR_SIDEBAR_TEXT_SECONDARY = "#6E6E73"  # Secondary/label text color
-COLOR_SIDEBAR_BUTTON_PRIMARY = "#5B9BD5"  # Primary button color (matches app)
-COLOR_SIDEBAR_BUTTON_HOVER = "#4A8AC4"  # Slightly darker hover state
-COLOR_SIDEBAR_SEPARATOR = "#D1D1D6"  # Subtle separator (matches app border)
-COLOR_SIDEBAR_SECTION_LABEL = "#8E8E93"  # Muted section label text
+
+# Sidebar-specific color tokens (derived from the shared THEME palette)
+# Values are kept in sync with THEME; use THEME directly for new code.
+COLOR_SIDEBAR_BG = theme_hex("bg_sidebar")
+COLOR_SIDEBAR_HEADER_BG = theme_hex("bg_primary")
+COLOR_SIDEBAR_TEXT_PRIMARY = theme_hex("text_primary")  # Primary text color
+COLOR_SIDEBAR_TEXT_SECONDARY = theme_hex("text_secondary")  # Secondary/label text color
+COLOR_SIDEBAR_BUTTON_PRIMARY = theme_hex("accent")  # Primary button color
+COLOR_SIDEBAR_BUTTON_HOVER = theme_hex("accent_hover")  # Slightly darker hover state
+COLOR_SIDEBAR_SEPARATOR = theme_hex("separator")  # Subtle separator
+COLOR_SIDEBAR_SECTION_LABEL = theme_hex("text_muted")  # Muted section label text
 
 
 class SidebarPanel(wx.Panel):
