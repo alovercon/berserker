@@ -338,7 +338,7 @@ class McpServer(object):
                 "capabilities": {},
                 "clientInfo": {
                     "name": "berserker",
-                    "version": "0.1.0",
+                    "version": "0.2.0",
                 },
             },
         )
