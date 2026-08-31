@@ -35,7 +35,6 @@ a = Analysis(
         "berserker.cli.plugin_cmd",
         "berserker.cli.stats_cmd",
         "berserker.config",
-        "berserker.file",
         "berserker.git",
         "berserker.id",
         "berserker.logging_config",
