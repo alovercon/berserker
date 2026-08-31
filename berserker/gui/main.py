@@ -326,6 +326,14 @@ class MessageDisplayPanel(wx.Panel):
 
     def clear(self):
         # type: () -> None
+        """Clear all messages and drop any stale 'Load earlier' link.
+
+        The link is a separate wx.StaticText widget bound to a callback that
+        captures a specific session_id. If it is not removed here, switching
+        to a session with no older messages would leave the previous session's
+        link visible (and clicking it would load the wrong session's history).
+        """
+        self.remove_load_earlier_button()
         self.chat_list.clear()
 
     def add_load_earlier_button(self, remaining_count, callback=None):
