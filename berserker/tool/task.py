@@ -44,7 +44,7 @@ def _format_execution_stats(result):
 
 def _get_subagent_timeout():
     # type: () -> int
-    """Read subagent timeout from config, falling back to 1200s (20 minutes)."""
+    """Read subagent timeout from config, falling back to 3600s (1 hour)."""
     try:
         from berserker.config import load_config
 
@@ -55,7 +55,7 @@ def _get_subagent_timeout():
     except Exception as e:
         logger.warning("Failed to load subagent_timeout from config: %s", e)
         pass
-    return 1200
+    return 3600
 
 
 def _notify_subagent_start(ctx, description, subagent_type, mode="single"):

@@ -307,7 +307,7 @@ class AgentInfo(object):
 
                     (tools must pass permission checks).
 
-        max_tool_iterations: Maximum tool call loop iterations per turn (default: 10).
+        max_tool_iterations: Maximum tool call loop iterations per turn (default: 100000).
 
     """
 

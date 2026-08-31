@@ -2,7 +2,7 @@
 berserker.config.loader — Multi-layer config loading and merging.
 
 Layer merge order (later overrides earlier):
-  0. defaults  — built-in default values (subagent_timeout: 1200)
+  0. defaults  — built-in default values (subagent_timeout: 3600)
   1. managed   — enterprise/MDM settings (NOT implemented, returns {})
   2. global    — {config_dir}/config.json
   3. custom    — user-specified config file path
@@ -24,7 +24,7 @@ from berserker.paths import get_config_dir
 
 # Default configuration values — lowest priority layer, overridden by all others.
 DEFAULT_CONFIG = {
-    "subagent_timeout": 1200,  # 20 minutes for subagent execution
+    "subagent_timeout": 3600,  # 1 hour for subagent execution (long-running tasks)
 }
 
 
@@ -170,7 +170,7 @@ def load_config(
     Load and merge all applicable config layers.
 
     Merge order (later overrides earlier):
-      0. defaults  — built-in defaults (subagent_timeout: 1200)
+      0. defaults  — built-in defaults (subagent_timeout: 3600)
       1. managed   — always empty (not implemented)
       2. global    — {config_dir}/config.json
       3. custom    — config_path if provided
