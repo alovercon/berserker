@@ -15,6 +15,7 @@ Python 3.8.10 compatible: uses type comments, Optional/Union, no match/case.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import uuid
 from typing import Any, Dict, List, Optional
@@ -23,6 +24,38 @@ from berserker.provider.base import ChatMessage
 from berserker.tool.base import Tool, ToolConfig, ToolContext, ToolExecutionError, ToolResult
 
 logger = logging.getLogger(__name__)
+
+_ARTIFACT_INLINE_THRESHOLD = 8192
+
+
+def _persist_large_artifact(content, session_tag, subagent_type):
+    # type: (str, str, str) -> str
+    """Persist large subagent outputs to ``.berserker/agent_outputs/`` and
+    append a path reference.
+
+    Rationale (plan→critic incident): a long subagent artifact (e.g. a 24KB
+    plan) forwarded purely as inline text depends on the caller pasting it
+    into the next delegation prompt — when it doesn't, the downstream agent
+    reviews nothing. The persisted file gives every downstream agent a
+    durable, citeable location.
+    """
+    if not content or len(content) <= _ARTIFACT_INLINE_THRESHOLD:
+        return content
+    try:
+        from berserker.workspace import get_workspace
+        base = os.path.join(get_workspace(), ".berserker", "agent_outputs")
+        os.makedirs(base, exist_ok=True)
+        fname = "{}-{}.md".format(subagent_type or "subagent",
+                                  (session_tag or "out")[-12:])
+        path = os.path.join(base, fname)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return content + (
+            "\n\n[完整产物已落盘: {} （如需委派下游 agent 处理本产物，"
+            "请直接引用该文件路径，勿贴全文）]".format(path))
+    except Exception as exc:
+        logger.warning("Failed to persist large artifact: %s", exc)
+        return content
 
 
 def _format_execution_stats(result):
@@ -332,7 +365,11 @@ class TaskTool(Tool):
             )
 
         # Format result with task_id for resumption
-        content = result.get("content", "")  # type: str
+        # Large artifacts are persisted to disk and referenced by path, so a
+        # downstream delegation (e.g. to critic) can cite the file instead of
+        # pasting the full text.
+        content = _persist_large_artifact(
+            result.get("content", ""), sub_session_id, subagent_type)  # type: str
         output_lines = [
             "task_id: {} (for resuming to continue this task if needed)".format(sub_session_id),
             _format_execution_stats(result),
@@ -432,6 +469,9 @@ class TaskTool(Tool):
             content = ""
             if isinstance(task_result, dict):
                 content = task_result.get("content", "")
+            # Persist large parallel artifacts and reference the path (see
+            # _execute_single for the rationale).
+            content = _persist_large_artifact(content, task_id, "parallel")
 
             output_lines.append("<task_result task_id='{}' status='{}'>".format(task_id, status))
             if isinstance(task_result, dict) and not task_result.get("tool_calls_count", 0):
@@ -536,6 +576,8 @@ class TaskTool(Tool):
             content = ""
             if isinstance(task_result, dict):
                 content = task_result.get("content", "")
+            # Persist large sequential artifacts and reference the path.
+            content = _persist_large_artifact(content, task_id, "sequential")
 
             output_lines.append("<task_result task_id='{}' status='{}'>".format(task_id, status))
             if isinstance(task_result, dict) and not task_result.get("tool_calls_count", 0):

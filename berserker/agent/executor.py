@@ -11,6 +11,47 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def _tool_call_signature(tool_calls):
+    # type: (Any) -> str
+    """Stable signature of one iteration's tool calls (sorted name|args).
+
+    Arguments are normalized via JSON (sorted keys) so trivially-reordered
+    payloads still hash equal; unparseable args fall back to the raw string.
+    """
+    parts = []
+    for tc in tool_calls or []:
+        fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+        name = fn.get("name", "?")
+        args = fn.get("arguments", "")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (ValueError, TypeError):
+                pass
+        try:
+            norm = json.dumps(args, sort_keys=True, ensure_ascii=False,
+                              default=str)
+        except (ValueError, TypeError):
+            norm = str(args)
+        parts.append("{}|{}".format(name, norm))
+    return "||".join(sorted(parts))
+
+
+def _stuck_loop_detected(window, tool_calls, window_size, threshold):
+    # type: (List[str], Any, int, int) -> bool
+    """True when the current tool-call signature repeats >= *threshold* times
+    within the sliding *window* (catches AAAA and ABAB-style loops without
+    penalizing legitimate long recon sequences of varied tool calls)."""
+    window.append(_tool_call_signature(tool_calls))
+    if len(window) > window_size:
+        del window[0]
+    if len(window) < threshold:
+        return False
+    from collections import Counter
+    return Counter(window).most_common(1)[0][1] >= threshold
+
+
 from berserker.agent.compaction import CompactionStrategy
 from berserker.agent.messaging import message_router
 from berserker.bus import (
@@ -326,9 +367,14 @@ class AgentExecutor(object):
         response = None  # type: Optional[ChatResponse]
         context_retry_count = 0  # type: int
 
-        # Track consecutive empty-response tool-call loops to detect stuck agents
-        _empty_tool_loop_count = 0  # type: int
-        _max_empty_tool_loops = 20  # type: int
+        # Stuck-loop guard: a sliding window of recent tool-call signatures.
+        # A REAL loop repeats the SAME tool call(s) (identical name+args);
+        # recon-heavy agents legitimately emit many consecutive tool-only
+        # turns with empty text but VARIED calls — that must NOT be treated
+        # as a loop (it used to force-stop plan/doc_agent mid-recon).
+        _tool_sig_window = []  # type: List[str]
+        _STUCK_WINDOW = 6      # signatures kept in the window
+        _STUCK_THRESHOLD = 3   # repeats of the same signature within window
         _stuck_aborted = False  # type: bool  # set when the stuck-loop guard forces a stop
 
         # Execution stats surfaced to callers (task tool annotations)
@@ -507,26 +553,21 @@ class AgentExecutor(object):
                 repr(content_preview),
             )
 
-            # Detect stuck-in-tool-loop: empty text + tool calls repeatedly
-            if has_tools and not (response.content or "").strip():
-                _empty_tool_loop_count += 1
-                logger.warning(
-                    "[STUCK_DETECT] Iteration %d: empty content with tool calls (%d consecutive). "
-                    "Agent=%s, tool_count=%d",
-                    iteration, _empty_tool_loop_count, agent_name,
-                    len(response.tool_calls) if response.tool_calls else 0,
-                )
-                if _empty_tool_loop_count >= _max_empty_tool_loops:
+            # Detect stuck-in-tool-loop: the SAME tool-call signature repeated
+            # within a short sliding window (AAAA, ABAB…). Varied tool use —
+            # even long stretches of tool-only turns with empty text — is
+            # legitimate recon and resets nothing.
+            if has_tools:
+                if _stuck_loop_detected(
+                        _tool_sig_window, response.tool_calls,
+                        _STUCK_WINDOW, _STUCK_THRESHOLD):
                     logger.error(
-                        "[STUCK_ABORT] Agent %s stuck in empty-tool loop for %d iterations. "
-                        "Forcing stop.",
-                        agent_name, _empty_tool_loop_count,
+                        "[STUCK_ABORT] Agent %s repeating identical tool calls "
+                        "(%dx within last %d iterations). Forcing stop.",
+                        agent_name, _STUCK_THRESHOLD, _STUCK_WINDOW,
                     )
                     _stuck_aborted = True
                     break
-            else:
-                # Reset counter on any non-empty response
-                _empty_tool_loop_count = 0
 
             if has_tools and response.tool_calls is not None:
                 for tc in response.tool_calls:

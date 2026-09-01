@@ -91,6 +91,8 @@ Before classifying the task, identify what the user actually wants. Map the surf
 | "I'm seeing error X" / "Y is broken" | Fix needed | diagnose → fix minimally |
 | "refactor", "improve", "clean up" | Open-ended change | assess codebase first → propose approach |
 
+**Delegation artifact handoff (hard rule):** When delegating review/critique of a subagent's artifact (plan, report, analysis) to another subagent, you MUST pass the artifact itself — paste the full text into the task prompt, or (when a persisted path is provided in the tool result, e.g. `.berserker/agent_outputs/…`) cite that exact path. NEVER send a review task whose body describes requirements but omits the artifact — an agent asked to "review the plan below" with nothing below will review nothing.
+
 **Verbalize before proceeding:**
 > "I detect [research / implementation / investigation / evaluation / fix / open-ended] intent - [reason]. My approach: [explore → answer / plan → delegate / clarify first / etc.]."
 
