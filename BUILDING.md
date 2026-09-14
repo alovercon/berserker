@@ -13,8 +13,11 @@ This document provides instructions for building standalone executables of berse
 The easiest way to build is using the provided PowerShell script:
 
 ```powershell
-# Build CLI executable (includes GUI support via 'berserker gui')
+# Build the GUI executable (default)
 .\build.ps1
+
+# Build both CLI and GUI executables
+.\build.ps1 -All
 
 # Build only CLI
 .\build.ps1 -CliOnly
@@ -75,11 +78,11 @@ You can copy these files to any Windows 7+ machine and run them directly without
 
 | Feature | CLI (`berserker.spec`) | GUI (`berserker-gui.spec`) |
 |---------|------------------------|----------------------------|
-| Console window | Yes | Yes |
-| wxPython GUI | Included | Included |
-| Entry point | `berserker/__main__.py` | `berserker/gui_entry.py` |
+| Console window | Yes | No (windowed) |
+| wxPython GUI | Not included | Included |
+| Entry point | `berserker/cli_entry.py` | `berserker/gui_entry.py` |
 | Output name | `berserker.exe` | `berserker-gui.exe` |
-| Use case | Default build - supports both CLI and GUI (`berserker gui`) | Standalone GUI-only executable |
+| Use case | Terminal users (`-CliOnly` / `-All`) | Desktop GUI users (default `.\build.ps1` / `-GuiOnly`) |
 
 ## Notes
 

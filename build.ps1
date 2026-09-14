@@ -16,17 +16,17 @@
     Build and create ZIP archive of output
 
 .PARAMETER CliOnly
-    Build only the CLI executable (berserker-cli.exe)
+    Build only the CLI executable (berserker.exe)
 
 .PARAMETER GuiOnly
-    Build only the GUI executable (berserker-gui.exe)
+    Build only the GUI executable (berserker-gui.exe). This is the default when no parameter is given.
 
 .PARAMETER All
-    Build both CLI and GUI executables (both with console)
+    Build both CLI and GUI executables
 
 .EXAMPLE
     .\build.ps1
-    Builds both CLI and GUI executables using PyInstaller
+    Builds the GUI executable (default)
 
 .EXAMPLE
     .\build.ps1 -Clean
@@ -41,6 +41,10 @@
     Builds only the CLI executable
 
 .EXAMPLE
+    .\build.ps1 -All
+    Builds both CLI and GUI executables
+
+.EXAMPLE
     .\build.ps1 -GuiOnly
     Builds only the GUI executable
 
@@ -49,7 +53,7 @@
     Builds both executables and packages them into a ZIP archive
 #>
 
-[CmdletBinding(DefaultParameterSetName='All')]
+[CmdletBinding(DefaultParameterSetName='GuiOnly')]
 param(
     [Parameter(ParameterSetName='Clean')]
     [switch]$Clean,
@@ -294,9 +298,20 @@ try {
             }
             exit 0
         }
-        default {
-            # Default: Build CLI executable only (CLI supports launching GUI via 'berserker gui')
+        "All" {
+            # Build both CLI and GUI executables
             if (-not (Build-Application -SpecFile "berserker.spec" -ExpectedExe "berserker.exe")) {
+                exit 1
+            }
+            if (-not (Build-Application -SpecFile "berserker-gui.spec" -ExpectedExe "berserker-gui.exe")) {
+                exit 1
+            }
+            exit 0
+        }
+        default {
+            # Unreachable in practice (all parameter sets are covered);
+            # fall back to the default behavior: GUI only.
+            if (-not (Build-Application -SpecFile "berserker-gui.spec" -ExpectedExe "berserker-gui.exe")) {
                 exit 1
             }
             exit 0

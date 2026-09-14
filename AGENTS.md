@@ -22,8 +22,8 @@ python -m py_compile <file>             # 单文件；或 python -m compileall b
 ruff check --isolated --select E,F --ignore E501 <files>
 
 # 构建（PyInstaller）
-.\build.ps1                 # CLI + GUI
-.\build.ps1 -GuiOnly        # 仅 GUI；另有 -CliOnly / -Package / -Clean / -Test
+.\build.ps1                 # 仅 GUI（默认）
+.\build.ps1 -All            # CLI + GUI；另有 -GuiOnly / -CliOnly / -Package / -Clean / -Test
 ```
 
 ## 每次修改后的检查清单（务必逐项确认）
