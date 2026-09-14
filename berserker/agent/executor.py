@@ -133,6 +133,68 @@ class TextModeToolCallError(RuntimeError):
     tool_calls - the turn cannot be trusted as a completed answer."""
 
 
+# Safety factor applied to compaction budgets when no exact tokenizer is
+# available for the model. The fallback estimator undercounts dense code/JSON
+# for DeepSeek-class tokenizers by ~25-35% (measured on a live session:
+# 835,795 estimated -> 1,087,980 API-billed). 0.7 keeps the compacted payload
+# genuinely below the API limit. tests/test_compaction_gate.py
+_ESTIMATION_SAFETY_FACTOR = 0.7
+
+
+def compaction_budget(context_limit, reserved, model_name, token_counter):
+    # type: (int, int, str, Any) -> int
+    """Effective compaction budget in *estimated* tokens.
+
+    With an exact tokenizer (tiktoken, or the bundled Qwen BPE vocab) the full
+    ``context_limit - reserved`` budget is safe. Without one, shrink it by
+    ``_ESTIMATION_SAFETY_FACTOR`` so "under budget" is actually safe.
+    """
+    base = context_limit - reserved
+    if base <= 0:
+        return base
+    exact = False
+    try:
+        exact = bool(TokenCounter._is_qwen_model(model_name)) or (
+            token_counter.get_encoding(model_name) is not None
+        )
+    except Exception:
+        exact = False
+    if exact:
+        return base
+    return int(base * _ESTIMATION_SAFETY_FACTOR)
+
+
+def ensure_retry_fits(messages, system_msg, target_tokens, token_counter, model_name, truncate_fn):
+    # type: (List[Any], Any, int, Any, str, Any) -> List[Any]
+    """Guarantee the context-retry payload ends up under *target_tokens*.
+
+    If prune+compact already brought it under target, return it unchanged.
+    Otherwise force-drop the oldest turns via *truncate_fn* -- the retry must
+    never resend a byte-identical over-limit payload (the API re-fails it
+    identically; this is exactly how the DeepSeek-400 loop played out).
+    """
+    if token_counter.count_messages(messages, model_name) <= target_tokens:
+        return messages
+    logger.warning(
+        "Compaction left payload over target (%d > %d); force-dropping oldest turns before retry",
+        token_counter.count_messages(messages, model_name),
+        target_tokens,
+    )
+    return truncate_fn(messages, system_msg, target_tokens, token_counter, model_name)
+
+
+def loop_increment_trigger(config, context_limit):
+    # type: (Any, int) -> int
+    """Token increment within one checkpoint interval that forces a mid-loop
+    prune/compact: max(prune_protect, 10% of the context window).
+
+    A single tool result is already capped (max_tool_output_chars), but a burst
+    of tool calls in one iteration can add far more than the total threshold's
+    next checkpoint tolerates -- this catches the burst early.
+    """
+    return max(int(getattr(config, "prune_protect", 40000) or 40000), int(context_limit * 0.1))
+
+
 class AgentExecutor(object):
     """Handles agent execution: provider calls, tool loops, compaction, persistence."""
 
@@ -398,6 +460,11 @@ class AgentExecutor(object):
         # Mark agent as thinking (about to make first LLM call)
         agent_monitor.update_phase(agent_id, "thinking", "Calling LLM...")
 
+        # Checkpoint for the per-iteration increment guard (fix 4): tracks how
+        # many tokens were added since the last compaction decision, so a burst
+        # of tool results triggers compaction before the total threshold does.
+        _checkpoint_tokens = None  # type: Optional[int]
+
         while iteration < max_tool_iterations:            # Check abort signal at start of each iteration
             if abort_event is not None and abort_event.is_set():
                 logger.info("Execution aborted at iteration %d (before provider call)", iteration)
@@ -432,14 +499,25 @@ class AgentExecutor(object):
                 context_limit = model_metadata.get("context_window", 128000)
 
                 strategy = CompactionStrategy(self._manager._compaction_config)
-                if strategy.should_compact(current_tokens, context_limit):
+                if _checkpoint_tokens is None:
+                    _checkpoint_tokens = current_tokens
+                _over_total = strategy.should_compact(current_tokens, context_limit)
+                # Per-iteration increment guard: a burst of tool results since the
+                # last checkpoint can overflow long before the total threshold.
+                _over_increment = (
+                    current_tokens - _checkpoint_tokens
+                ) > loop_increment_trigger(strategy.config, context_limit)
+                if _over_total or _over_increment:
+                    _reason = "loop_token_overflow" if _over_total else "loop_increment_overflow"
                     logger.info(
-                        "Loop compaction triggered at iteration %d: %d tokens exceed threshold "
-                        "(context limit: %d, reserved buffer: %d)",
+                        "Loop compaction triggered at iteration %d (%s): %d tokens "
+                        "(context limit: %d, reserved buffer: %d, increment since checkpoint: %d)",
                         iteration,
+                        _reason,
                         current_tokens,
                         context_limit,
                         strategy.config.reserved,
+                        current_tokens - _checkpoint_tokens,
                     )
 
                     # Unified compaction via _execute_compaction (loop compaction, with snapshot tracking)
@@ -453,12 +531,13 @@ class AgentExecutor(object):
                         strategy=strategy,
                         token_counter=token_counter,
                         tracker=SnapshotTracker(),
-                        reason="loop_token_overflow",
+                        reason=_reason,
                         do_fallback_truncate=False,
                         system_msg=system_msg,
                         abort_event=abort_event,
                     )
                     full_messages = result["full_messages"]
+                    _checkpoint_tokens = result["after_tokens"]
                     agent_monitor.update_phase(agent_id, "thinking", "Calling LLM...")
             # Call provider with tools
             chat_options = {}  # type: Dict[str, Any]
@@ -498,9 +577,21 @@ class AgentExecutor(object):
                 model_metadata = provider_registry.get_model_metadata(model_name)
                 context_limit = model_metadata.get("context_window", 128000)
                 strategy = CompactionStrategy(self._manager._compaction_config)
-                target_tokens = context_limit - strategy.config.reserved
+                target_tokens = compaction_budget(
+                    context_limit, strategy.config.reserved, model_name, token_counter
+                )
 
-                compacted_messages = self._manager.compact(compacted_messages, max_tokens=target_tokens)
+                compacted_messages = self._manager.compact(
+                    compacted_messages, max_tokens=target_tokens, model=model_name
+                )
+
+                # no-shrink guard: whatever compact() judged, the retry payload must
+                # actually fit under target -- never resend a byte-identical
+                # over-limit request (it re-fails identically, DeepSeek 400).
+                compacted_messages = ensure_retry_fits(
+                    compacted_messages, system_msg, target_tokens,
+                    token_counter, model_name, self._fallback_truncate_messages,
+                )
 
                 logger.info(
                     "Messages compacted for retry: %d -> %d messages",
@@ -1097,8 +1188,12 @@ class AgentExecutor(object):
         before_tokens = token_counter.count_messages(full_messages, model_name)
         full_messages = self._manager.prune_messages(full_messages, session_id=session_id)
         full_messages = self._manager.compact(
-            full_messages, max_tokens=context_limit - strategy.config.reserved,
+            full_messages,
+            max_tokens=compaction_budget(
+                context_limit, strategy.config.reserved, model_name, token_counter
+            ),
             abort_event=abort_event,
+            model=model_name,
         )
 
         # 4. Calculate tokens after compaction
@@ -1107,7 +1202,9 @@ class AgentExecutor(object):
 
         # 4.5. Fallback truncate if needed (only for pre-execution compaction)
         if do_fallback_truncate and system_msg is not None:
-            target_limit = context_limit - strategy.config.reserved
+            target_limit = compaction_budget(
+                context_limit, strategy.config.reserved, model_name, token_counter
+            )
             if after_tokens > target_limit:
                 full_messages = self._fallback_truncate_messages(
                     full_messages, system_msg, target_limit, token_counter, model_name
@@ -1225,8 +1322,14 @@ class AgentExecutor(object):
             # Only system messages remain -- nothing to truncate
             return [system_msg]
 
+        # The non-system budget must leave room for the system message itself,
+        # otherwise the re-prepended system prompt pushes the final total back
+        # over max_tokens by its cost (observed: 3004 > 3000).
+        system_tokens = token_counter.count_messages([system_msg], model_name)
+        tail_budget = max(1, max_tokens - system_tokens)
+
         # Binary search for the minimum number of messages to drop from the front
-        # We want to keep messages[lo:] such that token_count <= max_tokens
+        # We want to keep messages[lo:] such that token_count <= tail_budget
         lo = 0  # drop nothing
         hi = len(non_system)  # drop everything
 
@@ -1235,14 +1338,14 @@ class AgentExecutor(object):
         for msg in non_system:
             msg_tokens.append(token_counter.count_messages([msg], model_name))
 
-        # Binary search: find smallest `drop` such that kept tokens <= max_tokens
+        # Binary search: find smallest `drop` such that kept tokens <= tail_budget
         best_drop = len(non_system)  # worst case: drop all
 
         while lo <= hi:
             mid = (lo + hi) // 2
             # Keep non_system[mid:] (drop first `mid` messages)
             kept_tokens = sum(msg_tokens[mid:])
-            if kept_tokens <= max_tokens:
+            if kept_tokens <= tail_budget:
                 best_drop = mid
                 hi = mid - 1  # try dropping fewer
             else:
@@ -1254,7 +1357,7 @@ class AgentExecutor(object):
         if best_drop > max_drop:
             # Check if keeping min_keep messages is within limit
             kept_tokens = sum(msg_tokens[max_drop:])
-            if kept_tokens <= max_tokens:
+            if kept_tokens <= tail_budget:
                 best_drop = max_drop
             # If even keeping min_keep exceeds limit, use best_drop as-is
 

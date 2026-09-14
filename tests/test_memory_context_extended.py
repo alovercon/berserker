@@ -249,7 +249,9 @@ class TestCompactionEdgeCases:
             ChatMessage(role="user", content="New question"),
             ChatMessage(role="assistant", content="New answer"),
         ]
-        result = manager.compact(messages, max_tokens=10)
+        # Budget must trigger compaction yet still fit system + the newest
+        # exchange (unified counter: history ~32 tokens, system+last pair ~18).
+        result = manager.compact(messages, max_tokens=25)
         # Should have system + at least some recent content
         assert len(result) >= 2
         assert result[0].role == "system"

@@ -30,8 +30,6 @@ import copy
 
 import hashlib
 
-import json
-
 import logging
 
 import os
@@ -843,20 +841,23 @@ BUILT_IN_AGENTS = [agent.name for agent in BUILT_IN_AGENTS_CONFIG]  # type: List
 
 
 
-def _msg_token_count(msg):
-    # type: (Any) -> int
-    """Full per-message token count: content + tool-call arguments +
-    reasoning_content (all of these are sent to the API)."""
-    n = count_tokens(msg.content or "")
-    for tc in getattr(msg, "tool_calls", None) or []:
-        fn = tc.get("function", {}) if isinstance(tc, dict) else {}
-        args = fn.get("arguments")
-        if args:
-            n += count_tokens(args if isinstance(args, str) else json.dumps(args, ensure_ascii=False))
-    rc = getattr(msg, "reasoning_content", None)
-    if rc:
-        n += count_tokens(rc)
-    return n
+_COMPACTION_TOKEN_COUNTER = TokenCounter()
+
+
+def _msg_token_count(msg, model="gpt-4o"):
+    # type: (Any, str) -> int
+    """Full per-message token count through the SAME counter the compaction
+    trigger uses (``TokenCounter.count_messages``): per-message overhead plus
+    language-aware content / tool-call arguments / reasoning_content.
+
+    This used to count via ``tool.truncate.count_tokens``, which without
+    tiktoken is a naive ``len(text)//4`` heuristic. The trigger
+    (``count_messages``) could read ~836k for a history this gate read ~733k
+    for, so ``compact()`` judged it "under budget" and returned it unchanged --
+    a byte-identical over-limit payload was then sent twice (DeepSeek 400).
+    Regression test: tests/test_compaction_gate.py
+    """
+    return _COMPACTION_TOKEN_COUNTER.count_messages([msg], model)
 
 
 def _split_turns(messages):
@@ -1595,8 +1596,8 @@ class AgentManager(object):
 
 
 
-    def compact(self, messages, max_tokens=4096, abort_event=None):
-        # type: (List[ChatMessage], int, Any) -> List[ChatMessage]
+    def compact(self, messages, max_tokens=4096, abort_event=None, model="gpt-4o"):
+        # type: (List[ChatMessage], int, Any, str) -> List[ChatMessage]
         """Compress conversation history (hybrid strategy).
 
         - Under budget: returned unchanged.
@@ -1612,11 +1613,13 @@ class AgentManager(object):
             abort_event: Optional threading.Event forwarded to the compaction
                          agent's execute call so a user abort also cancels
                          the summarization pass.
+            model: Model name for token counting (must match the trigger's
+                   counter; default "gpt-4o").
 
         Returns:
             Compacted list of ChatMessage objects.
         """
-        estimated_tokens = sum(_msg_token_count(m) for m in messages)
+        estimated_tokens = sum(_msg_token_count(m, model) for m in messages)
 
         if estimated_tokens < max_tokens:
             return list(messages)
@@ -1642,7 +1645,7 @@ class AgentManager(object):
         tail = []  # type: List[List[ChatMessage]]
         tail_tokens = 0
         for turn in reversed(turns):
-            t = sum(_msg_token_count(m) for m in turn)
+            t = sum(_msg_token_count(m, model) for m in turn)
             if len(tail) >= keep or (tail and tail_tokens + t > tail_budget):
                 break
             tail.insert(0, turn)
@@ -1711,12 +1714,12 @@ class AgentManager(object):
 
         result = _assemble(tail)
         # Guarantee pass: shed tail turns (oldest first) until within budget.
-        while tail and sum(_msg_token_count(m) for m in result) > max_tokens:
+        while tail and sum(_msg_token_count(m, model) for m in result) > max_tokens:
             tail = tail[1:]
             result = _assemble(tail)
-        if sum(_msg_token_count(m) for m in result) > max_tokens:
+        if sum(_msg_token_count(m, model) for m in result) > max_tokens:
             # Even the summary alone is over budget -- truncate its text.
-            over = sum(_msg_token_count(m) for m in result)
+            over = sum(_msg_token_count(m, model) for m in result)
             keep_chars = max(2000, len(summary_content) * max_tokens // max(over, 1))
             result = list(system_messages) + [
                 ChatMessage(

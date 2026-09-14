@@ -55,8 +55,10 @@ class TestCompact:
             ChatMessage(role="user", content="Message 2"),
             ChatMessage(role="assistant", content="Response 2"),
         ]
-        # With a very small max_tokens, should trigger compaction
-        result = manager.compact(messages, max_tokens=10)
+        # Budget below the full history but large enough to hold the system
+        # prompt plus the most recent turn (unified counter counts per-message
+        # overhead: history ~32 tokens, system+last turn ~19).
+        result = manager.compact(messages, max_tokens=25)
         # Should return at least system + summary (fallback: system + last 2)
         assert len(result) >= 2
         # First message should be system

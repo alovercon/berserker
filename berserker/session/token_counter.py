@@ -29,6 +29,12 @@ from berserker.session.qwen_tokenizer import get_qwen_tokenizer
 
 logger = logging.getLogger(__name__)
 
+# Large-text fast-path threshold (chars). Beyond this, full tokenization
+# buys nothing for context-budget decisions but costs real CPU: the
+# pure-Python Qwen BPE path runs ~2s/MB (measured, win32 Py3.8). Route
+# oversized payloads to the language-aware estimator (regex-based, ~ms).
+_LARGE_TEXT_CHARS = 200000
+
 
 class TokenCounter:
     """Precise token counter with model-specific encoding support."""
@@ -119,6 +125,11 @@ class TokenCounter:
         """
         if not text:
             return 0
+
+        # Large-text fast path: budget decisions don't need exact BPE counts
+        # for huge tool outputs; skip the expensive tokenizers entirely.
+        if len(text) > _LARGE_TEXT_CHARS:
+            return estimate_tokens(text)
 
         # Check if this is a Qwen model
         if self._is_qwen_model(model):

@@ -718,14 +718,20 @@ def prune_messages(self, messages, session_id=None):
 ### 8.3 AI compaction (`AgentManager.compact`)
 
 ```python
-def compact(self, messages, max_tokens=4096, abort_event=None):
-    # type: (List[ChatMessage], int, Any) -> List[ChatMessage]
+def compact(self, messages, max_tokens=4096, abort_event=None, model="gpt-4o"):
+    # type: (List[ChatMessage], int, Any, str) -> List[ChatMessage]
 ```
 
 Hybrid strategy: summarize the older turns, keep the recent ones verbatim.
 
-1. Estimate total tokens with `_msg_token_count` (content + tool-call
-   arguments + `reasoning_content`). If below `max_tokens`, return the
+1. Estimate total tokens with `_msg_token_count(msg, model)`, which delegates
+   to `TokenCounter.count_messages([msg], model)` — the **same counter the
+   trigger uses** (per-message overhead plus language-aware content, tool-call
+   argument, and `reasoning_content` counts). It used to go through
+   `tool.truncate.count_tokens` (naive `len(text) // 4` without tiktoken),
+   which read lower than the trigger and could make `compact()` judge an
+   over-limit history "under budget" and return it unchanged (regression
+   tests: `tests/test_compaction_gate.py`). If below `max_tokens`, return the
    messages unchanged.
 2. Split system messages from the rest. If there are 2 or fewer non-system
    messages, compaction would not help, so return unchanged.
@@ -761,7 +767,10 @@ All three compaction entry points funnel through one method in
   the trigger inside the tool loop. Includes snapshot tracking.
 - **Context retry** (`reason="context_retry"`, no snapshot tracking), after a
   `ContextLengthExceeded` from the provider; pruning then compaction run on a
-  deep copy before retrying the call.
+  deep copy, and `ensure_retry_fits` then verifies the payload is actually
+  under the target — if not, `_fallback_truncate_messages` force-drops the
+  oldest turns, so the retry never resends a byte-identical over-limit
+  request (which would re-fail identically).
 
 The method's order of operations:
 
@@ -770,15 +779,23 @@ The method's order of operations:
    and publish `SNAPSHOT_CREATED` with zeroed stats.
 2. Publish `COMPACTION_STARTED` with the reason.
 3. Count tokens before (`TokenCounter.count_messages`).
-4. Run `prune_messages(...)` then `compact(..., max_tokens=context_limit -
-   strategy.config.reserved, abort_event=abort_event)`.
+4. Run `prune_messages(...)` then `compact(..., max_tokens=compaction_budget(
+   context_limit, strategy.config.reserved, model_name, token_counter),
+   abort_event=abort_event, model=model_name)`. `compaction_budget` returns
+   `context_limit - reserved` when an exact tokenizer is available (tiktoken,
+   or the bundled Qwen BPE vocab); otherwise it multiplies the budget by a
+   0.7 safety factor (`_ESTIMATION_SAFETY_FACTOR`), because the fallback
+   estimator undercounts dense code/JSON for DeepSeek-class tokenizers by
+   ~25-35% (measured: 835,795 estimated vs 1,087,980 API-billed).
 5. Count tokens after and compute `tokens_freed`.
 6. For pre-execution compaction, if the result still exceeds the target, run
-   `_fallback_truncate_messages`: binary-search how many oldest non-system
-   messages to drop (keeping at least the last 5 when possible), always
-   preserving the system prompt. The cut point is then aligned to a tool-group
-   boundary: a kept suffix starting with tool messages would orphan them, so
-   those are dropped too.
+   `_fallback_truncate_messages`: the non-system budget first deducts the
+   system message's own token cost (so the re-prepended system prompt cannot
+   push the total back over the target), then binary-search how many oldest
+   non-system messages to drop (keeping at least the last 5 when possible),
+   always preserving the system prompt. The cut point is then aligned to a
+   tool-group boundary: a kept suffix starting with tool messages would
+   orphan them, so those are dropped too.
 7. If a tracker was provided and both hashes exist, diff the two snapshots,
    save the post snapshot with the diff stats, and publish `SNAPSHOT_CREATED`.
 8. Publish `COMPACTION_COMPLETED` with `tokens_before`, `tokens_after`,
@@ -797,7 +814,14 @@ The auto-trigger checks differ slightly by location:
 - **Pre-execution**: `if strategy.config.auto or agent.mode == "primary"`, then
   `if strategy.should_compact(total_tokens, context_limit)`.
 - **In-loop**: runs for primary agents only (`if agent.mode == "primary"`),
-  then the same `should_compact` check against the running token count.
+  then fires on either of two checks against the running token count: the
+  same `should_compact` total check, or a per-iteration **increment guard** —
+  if the tokens added since the last checkpoint exceed
+  `max(prune_protect, 10% of the window)` (`loop_increment_trigger`),
+  compaction runs early with `reason="loop_increment_overflow"` and the
+  checkpoint resets to the post-compaction count. A single tool result is
+  already capped by `max_tool_output_chars` (default 64000); the increment
+  guard catches a burst of tool calls within one checkpoint interval.
 
 ### 8.5 Snapshots (`session/snapshot.py`)
 

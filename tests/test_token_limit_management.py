@@ -81,10 +81,16 @@ class TestFallbackTruncation:
         ]
         full_messages = [system_msg] + conversation_msgs
         
-        # Mock token counter
+        # Mock token counter: additive per-message model mirroring the real
+        # counter (system costs 1000, each conversation message 2000). The
+        # truncation budget now deducts the system message's own cost, so the
+        # mock must price single messages realistically.
         mock_counter = Mock()
-        # First call: 50000 tokens (too high), after truncation: 15000 tokens
-        mock_counter.count_messages = Mock(side_effect=lambda msgs, model: 50000 if len(msgs) > 10 else 15000)
+        mock_counter.count_messages = Mock(
+            side_effect=lambda msgs, model: sum(
+                1000 if m.role == "system" else 2000 for m in msgs
+            )
+        )
         
         # Call fallback truncation
         result = executor._fallback_truncate_messages(
